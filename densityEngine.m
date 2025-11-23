@@ -40,7 +40,7 @@ switch lower(mode)
         DCOMP = setup_density_bins(S,data_folder);
     case 'accumulate'
         % The accumulation function updates the DCOMP struct in memory
-        DCOMP = accumulate_density(DCOMP, S, p, data_folder);
+        DCOMP = accumulate_density(DCOMP, S, p);
     otherwise
         error("Invalid mode specified. Use 'setup' or 'accumulate'.");
 end

@@ -1,5 +1,5 @@
-function [p,pgp,sgd_correction,sgd_edges,history] = sbc_setup_sgd_v9(S,PDF,opts)
-% SBC_SETUP_SGD_V8 (The "Sawtooth" Annealer)
+function [p,pgp,sgd_correction,sgd_edges,history] = sbc_setup_sgd_v9(S,PDF,opts,data_folder)
+% SBC_SETUP_SGD_V9 (The "Sawtooth" Annealer)
 %
 % Logic:
 % 1. Search Phase: Starts at base_batch_size (physically derived).
@@ -57,7 +57,7 @@ if S.potential==1, potname='lj'; elseif S.potential==2, potname='wca'; else potn
 seriesname = 'sgd_v8_anneal';
 filenamecorrection = sprintf(['ASYMCORR_',seriesname,'_%s_%.0e_%.0e_%.0f_%.1f_%.1e.mat'],...
     potname,S.rp,S.phi,S.N,S.pot_epsilon/S.kbT,S.pot_sigma);
-filestartingconfiguration = sprintf(['START_',seriesname,'_%s_%.0e_%.0e_%.0f_%.1f_%.1e.mat'],...
+filestartingconfiguration = sprintf(['START_SBC_%s_%.0e_%.0e_%.0f_%.1f_%.1e.mat'],...
     potname,S.rp,S.phi,S.N,S.pot_epsilon/S.kbT,S.pot_sigma);
 filepdfdenom = sprintf('PDFdenom_%.0e_%.0e_%.0f.mat',S.rp,S.phi,S.N);
 
@@ -149,7 +149,7 @@ pdf_metric = 0;
 history = struct('steps',[],'pdf_dev',[],'pdf_smooth',[],'max_corr',[],'gain',[],...
     'batch_size',[],'fraction_updated',[],'median_snr',[]);
 
-if graphing
+if graphing && S.pot_corr
     ndens.edges = sort((S.br:-0.02*S.rp:0)');
     ndens.centers = ndens.edges(1:end-1) + diff(ndens.edges)/2;
     ndens.counts = zeros(numel(ndens.centers),1);
@@ -179,7 +179,11 @@ r2_uniform = 3/5 * S.br^2;
 pgp = p - (2*S.br).*(p ./ (vecnorm(p,2,2) + eps));
 reverseStr = '';
 
-fprintf('Starting SGD V8 (Annealing). Base Batch: %d. Gain: %.2f. Cap: %.2e\n', sgd_batch_size, sgd_base_gain, sgd_cap);
+if S.pot_corr
+    fprintf('Starting SGD V9 (Annealing). Base Batch: %d. Gain: %.2f. Cap: %.2e\n', sgd_batch_size, sgd_base_gain, sgd_cap);
+else
+    fprintf('Thermalizing structure')
+end
 
 while true
     qs = qs + 1;
@@ -196,6 +200,10 @@ while true
         if is_expanded && is_relaxed
             thermflag = 1; qs = 1;
             disp('--- Thermalization complete ---');
+            if ~S.pot_corr
+                if enable_io,save([data_folder,'\',filestartingconfiguration], 'p', 'pgp', 'S');end
+                return
+            end
         end
     end
 
