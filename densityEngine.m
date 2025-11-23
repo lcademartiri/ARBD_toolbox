@@ -1,4 +1,4 @@
-function DCOMP = densityEngine(mode, DCOMP, S, P, p)
+function DCOMP = densityEngine(mode, DCOMP, S, P, p, data_folder)
 %DENSITYENGINE Manages setup and accumulation for density analysis.
 %
 % This function operates in two modes: 'setup' and 'accumulate'.
@@ -37,10 +37,10 @@ end
 switch lower(mode)
     case 'setup'
         % The setup function handles its own file loading/saving
-        DCOMP = setup_density_bins(S);
+        DCOMP = setup_density_bins(S,data_folder);
     case 'accumulate'
         % The accumulation function updates the DCOMP struct in memory
-        DCOMP = accumulate_density(DCOMP, S, p);
+        DCOMP = accumulate_density(DCOMP, S, p, data_folder);
     otherwise
         error("Invalid mode specified. Use 'setup' or 'accumulate'.");
 end
@@ -49,7 +49,7 @@ end
 
 
 % --- Sub-function for Setup ---
-function DCOMP = setup_density_bins(S)
+function DCOMP = setup_density_bins(S,data_folder)
     
     fprintf('--- Setting up Density Analysis ---\n');
 
@@ -89,7 +89,6 @@ function DCOMP = setup_density_bins(S)
             BS=(maxdist:-0.02*S.rp:maxdist-S.rc)';
             IS=(maxdist-S.rc:-S.rp:0)';
             DCOMP.edges.rho=sort(unique([IS;BS]));
-            
             DCOMP.counts_real.rho=zeros(numel(DCOMP.edges.rho)-1,1);
             DCOMP.counts_ghosts.rho=zeros(numel(DCOMP.edges.rho)-1,1);
             DCOMP.counts_real.az=zeros(azbins-1,1);
@@ -141,9 +140,21 @@ function DCOMP = setup_density_bins(S)
     % --- Run the mass distribution calculation ---
     DCOMP = calculate_mass_distribution(DCOMP, S);
 
+    % --- GENERATE AND SAVE DIAGNOSTIC FIGURES ---
+    fprintf('Generating Diagnostic Figures...\n');
+    
+    % Strip extension from filesave to get base name
+    [~, base_name, ~] = fileparts(filesave);
+    full_prefix = fullfile(data_folder, base_name);
+    
+    % Call helper functions (figures are saved automatically)
+    DCOMP=plot_density_diagnostics(DCOMP, S);
+    
+    fprintf('Diagnostics saved to: %s_*.fig\n', full_prefix);
+
     % --- Save the completed setup structure to the file ---
     fprintf('Saving newly generated density setup to: %s\n', filesave);
-    save(filesave, 'DCOMP', 'S', '-v7.3'); % Use -v7.3 for potentially large structs
+    save([data_folder,'\',filesave], 'DCOMP', 'S', '-v7.3'); % Use -v7.3 for potentially large structs
     DCOMP = rmfield(DCOMP, 'massdist');
 end
 
@@ -166,9 +177,9 @@ function DCOMP = calculate_mass_distribution(DCOMP, S)
             for idcomp = 1:DCOMP.numshells.rho
                 temp_pos = DCOMP.spherexyz;
                 temp_pos(:,1) = temp_pos(:,1) + DCOMP.centers.rho(idcomp);
-                temp_pos(vecnorm(temp_pos,2,2)>(S.br+S.rc+S.rp),:)=[];
+                temp_pos(vecnorm(temp_pos,2,2)>max(DCOMP.edges.rho),:)=[];
                 counts = histcounts(vecnorm(temp_pos, 2, 2), DCOMP.edges.rho);
-                DCOMP.massdist.rho(:,idcomp) = counts' / size(temp_pos,1); 
+                DCOMP.massdist.rho(:,idcomp) = counts' / sum(counts); 
             end
             fprintf('  SBC: azimuth...\n');
             for idcomp = 1:DCOMP.numshells.rho % Can be parallelized
@@ -181,7 +192,7 @@ function DCOMP = calculate_mass_distribution(DCOMP, S)
                     temp_pos = (Raz * temp_pos')';
                     [az_out,~,~] = cart2sph(temp_pos(:,1), temp_pos(:,2), temp_pos(:,3));
                     counts = histcounts(az_out, DCOMP.edges.az);
-                    DCOMP.massdist.az(:,idcomp,idcompaz) = counts' / DCOMP.sphereN; % BUG FIX
+                    DCOMP.massdist.az(:,idcomp,idcompaz) = counts' / sum(counts); % BUG FIX
                 end
             end
             fprintf('  SBC: elevation...\n');
@@ -191,11 +202,11 @@ function DCOMP = calculate_mass_distribution(DCOMP, S)
                     temp_pos(:,1) = temp_pos(:,1) + DCOMP.centers.rho(idcomp);
                     temp_pos(vecnorm(temp_pos,2,2)>(S.br+S.rc+S.rp),:)=[];
                     el = DCOMP.centers.el(idcompel);
-                    Rel = [cos(el), 0, sin(el); 0, 1, 0; -sin(el), 0, cos(el)];
+                    Rel = [cos(el), 0, -sin(el); 0, 1, 0; sin(el), 0, cos(el)];
                     temp_pos = (Rel * temp_pos')';
                     [~,el_out,~] = cart2sph(temp_pos(:,1), temp_pos(:,2), temp_pos(:,3));
                     counts = histcounts(el_out, DCOMP.edges.el);
-                    DCOMP.massdist.el(:,idcomp,idcompel) = counts' / DCOMP.sphereN; % BUG FIX
+                    DCOMP.massdist.el(:,idcomp,idcompel) = counts' / sum(counts); % BUG FIX
                 end
             end
 
@@ -235,7 +246,7 @@ function DCOMP = calculate_mass_distribution(DCOMP, S)
                     temp_pos = DCOMP.spherexyz;
                     temp_pos(:,1) = temp_pos(:,1) + DCOMP.centers.rho(idcomp);
                     el = DCOMP.centers.el(idcompel);
-                    Rel = [cos(el), 0, sin(el); 0, 1, 0; -sin(el), 0, cos(el)];
+                    Rel = [cos(el), 0, -sin(el); 0, 1, 0; sin(el), 0, cos(el)];
                     temp_pos = (Rel * temp_pos')';
                     temp_pos(vecnorm(temp_pos,2,2) > S.br, :) = [];
                     num_points_inside = size(temp_pos, 1);
@@ -256,7 +267,7 @@ function DCOMP = calculate_mass_distribution(DCOMP, S)
                         az = DCOMP.centers.az(idcompaz);
                         el = DCOMP.centers.el(idcompel);
                         Raz = [cos(az), -sin(az), 0; sin(az), cos(az), 0; 0, 0, 1];
-                        Rel = [cos(el), 0, sin(el); 0, 1, 0; -sin(el), 0, cos(el)];
+                        Rel = [cos(el), 0, -sin(el); 0, 1, 0; sin(el), 0, cos(el)];
                         Rtot = Rel * Raz;
                         temp_pos = (Rtot * temp_pos')';
                         temp_pos(max(abs(temp_pos),[],2)>S.br, :) = [];
@@ -306,7 +317,7 @@ function DCOMP = calculate_mass_distribution(DCOMP, S)
                     temp_pos = DCOMP.spherexyz;
                     temp_pos(:,1) = temp_pos(:,1) + DCOMP.centers.rho(idcomp);
                     el = DCOMP.centers.el(idcompel);
-                    Rel = [cos(el), 0, sin(el); 0, 1, 0; -sin(el), 0, cos(el)];
+                    Rel = [cos(el), 0, -sin(el); 0, 1, 0; sin(el), 0, cos(el)];
                     temp_pos = (Rel * temp_pos')';
                     temp_pos(vecnorm(temp_pos,2,2) > S.br, :) = [];
                     num_points_inside = size(temp_pos, 1);
@@ -330,7 +341,7 @@ function DCOMP = calculate_mass_distribution(DCOMP, S)
                         az = DCOMP.centers.az(idcompaz);
                         el = DCOMP.centers.el(idcompel);
                         Raz = [cos(az), -sin(az), 0; sin(az), cos(az), 0; 0, 0, 1];
-                        Rel = [cos(el), 0, sin(el); 0, 1, 0; -sin(el), 0, cos(el)];
+                        Rel = [cos(el), 0, -sin(el); 0, 1, 0; sin(el), 0, cos(el)];
                         Rtot = Rel * Raz;
                         temp_pos = (Rtot * temp_pos')';
                         
