@@ -197,7 +197,7 @@ while true
         spread_ratio = mean(prho.^2) / r2_uniform;
         is_expanded = spread_ratio > 0.99 || (qs > 2000 && abs(spread_ratio - 1) < 0.01);
         is_relaxed = qs > min_therm_steps;
-        if is_expanded && is_relaxed
+        if is_relaxed
             thermflag = 1; qs = 1;
             disp('--- Thermalization complete ---');
             if ~S.pot_corr
