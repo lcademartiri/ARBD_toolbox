@@ -1,0 +1,22 @@
+function SSF=ssf_accumulation(p,SSF,index)
+        ssf100_raw=sum(exp(-1i * SSF.kvec100 * p), 2);
+        ssf010_raw=sum(exp(-1i * SSF.kvec010 * p), 2);
+        ssf001_raw=sum(exp(-1i * SSF.kvec001 * p), 2);
+        ssf111_raw=sum(exp(-1i * SSF.kvec111 * p), 2);
+        ssf110_raw=sum(exp(-1i * SSF.kvec110 * p), 2);
+        ssf011_raw=sum(exp(-1i * SSF.kvec011 * p), 2);
+        ssf101_raw=sum(exp(-1i * SSF.kvec101 * p), 2);
+        ssf100=(1/S.N) * abs(ssf100_raw).^2;
+        ssf010=(1/S.N) * abs(ssf010_raw).^2;
+        ssf001=(1/S.N) * abs(ssf001_raw).^2;
+        ssf111=(1/S.N) * abs(ssf111_raw).^2;
+        ssf110=(1/S.N) * abs(ssf110_raw).^2;
+        ssf011=(1/S.N) * abs(ssf011_raw).^2;
+        ssf101=(1/S.N) * abs(ssf101_raw).^2;
+        SSF.SSF100_raw(index,:) = mean([ssf100_raw,ssf010_raw,ssf001_raw],2);
+        SSF.SSF110_raw(index,:) = mean([ssf110_raw,ssf011_raw,ssf101_raw],2);
+        SSF.SSF111_raw(index,:)=ssf111_raw;
+        SSF.SSF100(index,:) = mean([ssf100,ssf010,ssf001],2);
+        SSF.SSF110(index,:) = mean([ssf110,ssf011,ssf101],2);
+        SSF.SSF111(index,:)=ssf111;
+end

@@ -549,9 +549,6 @@ while true
 
     % Ghost Update (Free Tangential)
     v_rand_gp = randn(S.N, 3) * S.stdx;
-    if sum(idxgp)~=size(potdispsgp,1)
-        idxgp;
-    end
     if S.potential ~= 0, v_rand_gp(idxgp,:) = v_rand_gp(idxgp,:) + potdispsgp; end
     pgp_norm = vecnorm(pgp, 2, 2) + eps;
     pgp_dir  = pgp ./ pgp_norm;

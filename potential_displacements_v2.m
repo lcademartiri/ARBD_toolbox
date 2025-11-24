@@ -1,4 +1,4 @@
-function disppot = potential_displacements_v2(p, S, H, H_interpolant, ghostghost)
+function [disppot,pairs_i,pairs_j,d_mic] = potential_displacements_v2(p, S, H, H_interpolant, ghostghost)
 % Unified SBC + PBC (Cubic/FCC) potential displacements with MIC
 % p: N_total x 3
 % S: structure containing
