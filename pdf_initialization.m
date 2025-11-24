@@ -40,6 +40,19 @@ function PDF=pdf_initialization(S,P)
             MS=linspace(max(IS),min(BS),ceil((min(BS)-max(IS))/S.rp))';
             PDF.pdfedges{3}=unique(sort([OS;MS;BS;IS]));
         end
+
+     elseif S.bc==4 % BB
+        maxdist=sqrt(3)*(S.br/S.bbm);
+        paralleldist=S.br/S.bbm;
+        if 10*S.rp>(paralleldist-2*S.rc)
+            PDF.pdfedges{3}=sort((maxdist:-0.02*S.rp:0)'); % from 0 to 111 diagonal
+        else
+            OS=linspace(paralleldist,maxdist,ceil((maxdist-paralleldist)/S.rp))';
+            IS=(0:0.02*S.rp:10*S.rp)';
+            BS=(paralleldist:-0.02*S.rp:(paralleldist-2*S.rc))';
+            MS=linspace(max(IS),min(BS),ceil((min(BS)-max(IS))/S.rp))';
+            PDF.pdfedges{3}=unique(sort([OS;MS;BS;IS]));
+        end
     end
     PDF.centers{1}=PDF.pdfedges{1}(1:end-1,1)+diff(PDF.pdfedges{1})./2;
     PDF.centers{2}=PDF.pdfedges{2}(1:end-1,1)+diff(PDF.pdfedges{2})./2;
