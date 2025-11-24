@@ -78,7 +78,7 @@ end
 
 if S.potential~=0
     H = pot_force(S.potential,S.rc,30000,S.pot_sigma,S.pot_epsilon);
-    clamp = mcdClamp(1e6,S.rp,normrnd(0,S.stdx,1e6,3),S.esdiff,S.timestep,H,S.kbT);
+    % clamp = mcdClamp(1e6,normrnd(0,S.stdx,1e6,3),S.esdiff,S.timestep,H(H(:,1) >= 0.8 * S.pot_sigma, :),S.kbT);
     H_interpolant = griddedInterpolant(H(:,1), H(:,2), 'linear', 'nearest');
 end
 
@@ -210,7 +210,7 @@ while true
     % --- Physics: Potentials & Displacement ---
     if S.potential ~= 0
         ptemp = [p; pgp(idxgp,:)];
-        all_potdisps = potential_displacements_v2(ptemp, size(ptemp,1), S.rc, H, H_interpolant, S.esdiff, clamp, S.kbT, S.stdx, S.timestep, 1);
+        all_potdisps = potential_displacements_v2(ptemp, S, H, H_interpolant, 0);
         potdisps = all_potdisps(1:S.N, :);
         potdispsgp = all_potdisps(S.N+1:end, :);
         v_rand = randn(S.N, 3) * S.stdx;
@@ -549,6 +549,9 @@ while true
 
     % Ghost Update (Free Tangential)
     v_rand_gp = randn(S.N, 3) * S.stdx;
+    if sum(idxgp)~=size(potdispsgp,1)
+        idxgp;
+    end
     if S.potential ~= 0, v_rand_gp(idxgp,:) = v_rand_gp(idxgp,:) + potdispsgp; end
     pgp_norm = vecnorm(pgp, 2, 2) + eps;
     pgp_dir  = pgp ./ pgp_norm;

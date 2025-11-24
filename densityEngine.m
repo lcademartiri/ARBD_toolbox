@@ -60,6 +60,7 @@ function DCOMP = setup_density_bins(S,data_folder)
     if exist(filesave, 'file')
         fprintf('Loading existing density setup file: %s\n', filesave);
         load(filesave, 'DCOMP');
+        DCOMP = rmfield(DCOMP, 'massdist');
         return; % Exit the function if loaded successfully
     end
     
