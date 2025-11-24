@@ -73,7 +73,7 @@ if exist(filepdfdenom,'file')
 else
     % Calculate denominator with sufficient statistics (1e5 steps)
     gdenominator = PDFdenom(S, PDF, 1e5); 
-    if enable_io, save(filepdfdenom,'gdenominator','S'); end
+    if enable_io, save([data_folder,'\',filepdfdenom],'gdenominator','S'); end
 end
 
 if S.potential~=0
