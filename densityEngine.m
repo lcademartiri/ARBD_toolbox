@@ -143,14 +143,8 @@ function DCOMP = setup_density_bins(S,data_folder)
     % --- GENERATE AND SAVE DIAGNOSTIC FIGURES ---
     fprintf('Generating Diagnostic Figures...\n');
     
-    % Strip extension from filesave to get base name
-    [~, base_name, ~] = fileparts(filesave);
-    full_prefix = fullfile(data_folder, base_name);
-    
     % Call helper functions (figures are saved automatically)
     DCOMP=plot_density_diagnostics(DCOMP, S);
-    
-    fprintf('Diagnostics saved to: %s_*.fig\n', full_prefix);
 
     % --- Save the completed setup structure to the file ---
     fprintf('Saving newly generated density setup to: %s\n', filesave);
@@ -260,13 +254,13 @@ function DCOMP = calculate_mass_distribution(DCOMP, S)
             % --- Mass dist for slabs ---
             fprintf('  CUBIC/BB: slabs...\n');
             for idcomp = 1:DCOMP.numshells.slabs
+                temp_pos = DCOMP.spherexyz;
+                temp_pos(:,1) = temp_pos(:,1) + DCOMP.centers.slabs(idcomp);
                 for idcompaz = 1:DCOMP.numshells.az
+                    az = DCOMP.centers.az(idcompaz);
+                    Raz = [cos(az), -sin(az), 0; sin(az), cos(az), 0; 0, 0, 1];
                     for idcompel = 1:DCOMP.numshells.el
-                        temp_pos = DCOMP.spherexyz;
-                        temp_pos(:,1) = temp_pos(:,1) + DCOMP.centers.slabs(idcomp);
-                        az = DCOMP.centers.az(idcompaz);
                         el = DCOMP.centers.el(idcompel);
-                        Raz = [cos(az), -sin(az), 0; sin(az), cos(az), 0; 0, 0, 1];
                         Rel = [cos(el), 0, -sin(el); 0, 1, 0; sin(el), 0, cos(el)];
                         Rtot = Rel * Raz;
                         temp_pos = (Rtot * temp_pos')';
@@ -332,24 +326,20 @@ function DCOMP = calculate_mass_distribution(DCOMP, S)
             % --- Mass dist for slabs ---
             fprintf('  FCC: slabs...\n');
             for idcomp = 1:DCOMP.numshells.slabs
+                temp_pos = DCOMP.spherexyz;
+                temp_pos(:,1) = temp_pos(:,1) + DCOMP.centers.slabs(idcomp);
                 for idcompaz = 1:DCOMP.numshells.az
+                    az = DCOMP.centers.az(idcompaz);
+                    Raz = [cos(az), -sin(az), 0; sin(az), cos(az), 0; 0, 0, 1];
                     for idcompel = 1:DCOMP.numshells.el
-                        temp_pos = DCOMP.spherexyz;
-                        % BUG FIX: Position particle at center of SLAB, not rho shell
-                        temp_pos(:,1) = temp_pos(:,1) + DCOMP.centers.slabs(idcomp);
-                        temp_pos(vecnorm(temp_pos,2,2) > S.br, :) = [];
-                        az = DCOMP.centers.az(idcompaz);
                         el = DCOMP.centers.el(idcompel);
-                        Raz = [cos(az), -sin(az), 0; sin(az), cos(az), 0; 0, 0, 1];
                         Rel = [cos(el), 0, -sin(el); 0, 1, 0; sin(el), 0, cos(el)];
                         Rtot = Rel * Raz;
                         temp_pos = (Rtot * temp_pos')';
-                        
                         % Find distance to wall for each point in the cloud
                         temp_frac = temp_pos * S.fcc.invA;
                         is_inside = all(temp_frac >= 0 & temp_frac < 1, 2);
                         temp_frac = temp_frac(is_inside, :);
-                        
                         num_points_inside = size(temp_frac, 1);
                         if num_points_inside > 0
                             temp_frac_centered = temp_frac - round(temp_frac);
