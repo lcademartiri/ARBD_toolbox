@@ -184,7 +184,9 @@ if S.pot_corr
 else
     fprintf('Thermalizing structure')
 end
-
+% ---- CALCULATION OF DISPLACEMENT LIBRARIES ----
+DISP=build_noise_library(S.stdx,1e6);
+% ----
 while true
     qs = qs + 1;
 
@@ -195,9 +197,9 @@ while true
     % --- Thermalization Check ---
     if thermflag == 0
         spread_ratio = mean(prho.^2) / r2_uniform;
-        is_expanded = spread_ratio > 0.99 || (qs > 2000 && abs(spread_ratio - 1) < 0.01);
+        is_expanded = spread_ratio > 0.95;
         is_relaxed = qs > min_therm_steps;
-        if is_relaxed
+        if is_relaxed && is_expanded
             thermflag = 1; qs = 1;
             disp('--- Thermalization complete ---');
             if ~S.pot_corr
@@ -213,10 +215,12 @@ while true
         all_potdisps = potential_displacements_v2(ptemp, S, H, H_interpolant, 0);
         potdisps = all_potdisps(1:S.N, :);
         potdispsgp = all_potdisps(S.N+1:end, :);
-        v_rand = randn(S.N, 3) * S.stdx;
+        draw=randi(1e6,[S.N 1]);
+        v_rand = DISP(draw, :);
         base_disp = v_rand + potdisps;
     else
-        v_rand = randn(S.N, 3) * S.stdx;
+        draw=randi(1e6,[S.N 1]);
+        v_rand = DISP(draw, :);
         base_disp = v_rand;
         potdispsgp = zeros(sum(idxgp), 3);
     end
@@ -548,7 +552,8 @@ while true
     p2 = p + total_disp;
 
     % Ghost Update (Free Tangential)
-    v_rand_gp = randn(S.N, 3) * S.stdx;
+    draw=randi(1e6,[S.N 1]);
+    v_rand_gp = DISP(draw, :);
     if S.potential ~= 0, v_rand_gp(idxgp,:) = v_rand_gp(idxgp,:) + potdispsgp; end
     pgp_norm = vecnorm(pgp, 2, 2) + eps;
     pgp_dir  = pgp ./ pgp_norm;
