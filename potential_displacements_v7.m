@@ -31,19 +31,43 @@ rc = S.rc;
 % Memory per double = 8 bytes
 % We must fit approx 3 matrices of size BxB into cache (xdiff, ydiff, zdiff)
 % overhead factor = 1.2 for safety
-bytesPerBlock = cacheSizeMB * 1e6 / 1.2;
-B = floor( sqrt(bytesPerBlock / (3*8)) );
-B = max(200, min(B, 2000));  % enforce reasonable bounds
+% doubles=3*N... Fs
+%     +3*N... ps
+%     +3*N... p
+%     +3*B... pis
+%     +3*B... pjs
+%     +3*B^2 ... diffs
+%     +B^2 ... tmp_r2 (up to)
+%     +3*B^2 ... r2+rr+invr
+%     +2*B^2 ... ii_local & jj_local (up to)
+%     +3*B^2; % d_loc (up to)
+% doubles=9*N+12*B^2+6*B;
+% 
+% 
+% 
+% logicals=B^2 ... mask
+%     + B^2; % mask_flat
+% logicals=2*B^2;
+
+bytesPerBlock = cacheSizeMB * 1048576 / 1.2;
+if (72*N) < bytesPerBlock
+    B = floor( sqrt( (bytesPerBlock - 72*N) / 98 ) );
+else
+    B = floor( sqrt( bytesPerBlock / 98 ) );
+end
+% B = max(200, min(B, 2000));  % enforce reasonable bounds
 
 % For output
 Fx = zeros(N,1);
 Fy = zeros(N,1);
 Fz = zeros(N,1);
 
-% Keep lists of global pairs (optional but kept for compatibility)
-I_list = [];
-J_list = [];
-d_list = [];
+% Before block loops, estimate max pairs
+max_pairs = N * min(100, ceil(4/3*pi*rc^3 * N/(L^3)));
+I_list = zeros(max_pairs, 1, 'uint32');
+J_list = zeros(max_pairs, 1, 'uint32');
+d_list = zeros(max_pairs, 3);
+pair_count = 0;
 
 pot_r_min = H_mat(1,1);
 pot_r_max = H_mat(end,1);
@@ -60,7 +84,7 @@ for ii = 1:B:N
     pi_y = py(ii:i_end);
     pi_z = pz(ii:i_end);
 
-    for jj = ii+B:B:N
+    for jj = ii:B:N
         j_end = min(jj+B-1, N);
 
         % positions for j block
@@ -86,30 +110,45 @@ for ii = 1:B:N
         mask = (abs(xdiff)<=rc) & (abs(ydiff)<=rc) & (abs(zdiff)<=rc);
 
         %% 4. r2 only for masked entries
-        r2 = zeros(ni,nj);
-        mask_idx = mask(:);
-        if any(mask_idx)
-            tmp_r2 = xdiff(mask_idx).^2 + ydiff(mask_idx).^2 + zdiff(mask_idx).^2;
-            mask(mask_idx) = mask(mask_idx) & (tmp_r2 <= rc^2);
-            r2(mask) = tmp_r2;
-        end
+        mask_flat = mask(:);
+        if ~any(mask_flat), continue; end
+        tmp_r2 = xdiff(mask_flat).^2 + ydiff(mask_flat).^2 + zdiff(mask_flat).^2;
+        r2 = zeros(ni, nj);
+        r2(mask) = tmp_r2;
+        % radial cutoff
+        mask = mask & (r2 <= rc^2);
+        if ~any(mask(:)), continue; end
 
         %% 5. Extract valid (i_local, j_local)
         [ii_local, jj_local] = find(mask);
 
         if isempty(ii_local), continue; end
 
+        % If diagonal block (jj==ii) filter to i_local < j_local
+        if jj == ii
+            ok = ( (ii_local - 1) < (jj_local - 1) );       % since both are offsets inside same block
+            if ~any(ok), continue; end
+            ii_local = ii_local(ok);
+            jj_local = jj_local(ok);
+            % FILTER ALL dependent vectors
+            mask_idx = find(mask);       % linear indices of final mask
+            mask_idx = mask_idx(ok);     % keep only ones consistent with diag-filter
+        
+            % rebuild dloc, rr, Fij inputs using filtered mask
+            dloc = [xdiff(mask_idx), ydiff(mask_idx), zdiff(mask_idx)];
+            rr   = sqrt(r2(mask_idx));
+        else
+            mask_idx = find(mask);
+            dloc = [xdiff(mask_idx), ydiff(mask_idx), zdiff(mask_idx)];
+            rr   = sqrt(r2(mask_idx));
+        end
+
         % global indices
         Ii = ii - 1 + ii_local;
         Jj = jj - 1 + jj_local;
 
-        % distances & displacement vectors
-        rr = sqrt(r2(mask));
-        dloc = [ xdiff(mask), ydiff(mask), zdiff(mask) ];
-
         %% 6. Force magnitude from interpolant
-        r_clamped = min(max(rr,pot_r_min), pot_r_max);
-        Fij = H_interpolant(r_clamped);
+        Fij = H_interpolant(rr);
 
         Fij(rr>=rc | rr>=pot_r_max) = 0;
         bad = isnan(Fij);
@@ -124,16 +163,62 @@ for ii = 1:B:N
         fz = Fij .* dloc(:,3) .* inv_r;
 
         %% 7. Accumulate forces
-        Fx = Fx + accumarray(Ii, fx, [N 1]) - accumarray(Jj, fx, [N 1]);
-        Fy = Fy + accumarray(Ii, fy, [N 1]) - accumarray(Jj, fy, [N 1]);
-        Fz = Fz + accumarray(Ii, fz, [N 1]) - accumarray(Jj, fz, [N 1]);
+        % Fx = Fx + accumarray(Ii, fx, [N 1]) - accumarray(Jj, fx, [N 1]);
+        % Fy = Fy + accumarray(Ii, fy, [N 1]) - accumarray(Jj, fy, [N 1]);
+        % Fz = Fz + accumarray(Ii, fz, [N 1]) - accumarray(Jj, fz, [N 1]);
+
+        %% 7. Accumulate forces using sparse matrix trick
+        np = length(Ii);  % number of pairs in this block
+
+        % Build sparse accumulation matrices (only once per block)
+        S_add = sparse([Ii; Jj], [1:np, 1:np], [ones(np,1); -ones(np,1)], N, np);
+
+        % Accumulate all 3 dimensions at once
+        F_block = S_add * [fx, fy, fz];  % N x 3
+
+        Fx = Fx + F_block(:,1);
+        Fy = Fy + F_block(:,2);
+        Fz = Fz + F_block(:,3);
+
+        % %% 7. Accumulate forces directly
+        % for k = 1:length(Ii)
+        %     Fx(Ii(k)) = Fx(Ii(k)) + fx(k);
+        %     Fx(Jj(k)) = Fx(Jj(k)) - fx(k);
+        % 
+        %     Fy(Ii(k)) = Fy(Ii(k)) + fy(k);
+        %     Fy(Jj(k)) = Fy(Jj(k)) - fy(k);
+        % 
+        %     Fz(Ii(k)) = Fz(Ii(k)) + fz(k);
+        %     Fz(Jj(k)) = Fz(Jj(k)) - fz(k);
+        % end
+
+        % %% 7. Accumulate forces with combined indexing
+        % np = length(Ii);
+        % 
+        % % Create combined index and value arrays
+        % idx_combined = [Ii; Jj];           % length 2*np
+        % vals_x = [fx; -fx];                 % length 2*np
+        % vals_y = [fy; -fy];
+        % vals_z = [fz; -fz];
+        % 
+        % % Single accumarray per dimension
+        % Fx = Fx + accumarray(idx_combined, vals_x, [N 1]);
+        % Fy = Fy + accumarray(idx_combined, vals_y, [N 1]);
+        % Fz = Fz + accumarray(idx_combined, vals_z, [N 1]);
 
         %% record pairs (optional)
-        I_list = [I_list; Ii];
-        J_list = [J_list; Jj];
-        d_list = [d_list; dloc];
+        % Inside block loops, replace concatenation:
+        n_new = length(Ii);
+        I_list(pair_count+1:pair_count+n_new) = Ii;
+        J_list(pair_count+1:pair_count+n_new) = Jj;
+        d_list(pair_count+1:pair_count+n_new, :) = dloc;
+        pair_count = pair_count + n_new;
     end
 end
+% After loops, trim:
+I_list = I_list(1:pair_count);
+J_list = J_list(1:pair_count);
+d_list = d_list(1:pair_count, :);
 
 %% 8. Final forces → displacements
 totalforces = [Fx Fy Fz];
