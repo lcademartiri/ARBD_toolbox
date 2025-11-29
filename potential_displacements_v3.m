@@ -9,6 +9,7 @@ if S.bc ~= 2
 end
 
 N = size(p,1);
+
 L = 2*S.br;
 rc = S.rc;
 
@@ -43,50 +44,60 @@ mask(1:N+1:end) = false;
 
 %% ------------------------------------------------------------------------
 % 5) Compute distances only where needed
-
-r2 = xdiff.^2 + ydiff.^2 + zdiff.^2;
-r = sqrt(r2);
-
-mask = mask & (r <= rc);
+r2 = zeros(size(xdiff));
+r2(mask) = xdiff(mask).^2 + ydiff(mask).^2 + zdiff(mask).^2;
+mask = mask & (r2 <= rc^2);
 
 %% ------------------------------------------------------------------------
-% 6) Upper-triangle only
-maskUT = triu(mask,1);
+% 6) enforce i < j without using triu
+mask = mask & ((1:N)' < 1:N);
 
-[i_idx, j_idx] = find(maskUT);
+[pairs_i, pairs_j] = find(mask);
 
-pairs_i = uint32(i_idx);
-pairs_j = uint32(j_idx);
+% Extract displacements in same ordering as find(mask)
+d_mic = [xdiff(mask), ydiff(mask), zdiff(mask)];
+r     = sqrt(r2(mask));
 
-% Extract displacements / distances exactly in this order
-d_mic = [xdiff(maskUT), ydiff(maskUT), zdiff(maskUT)];
-rr    = r(maskUT);
-
-K = numel(rr);
+K = numel(r);
 if K == 0
     disppot = zeros(N,3);
     return;
 end
-
 %% ------------------------------------------------------------------------
 % 7) Compute force magnitudes
-if isa(H_interpolant,'function_handle')
-    Fmag = H_interpolant(rr);
-elseif isstruct(H) && isfield(H,'r') && isfield(H,'f')
-    Fmag = interp1(H.r(:), H.f(:), rr, 'linear', 0);
-else
-    Fmag = (rr>0).* (1./(rr+eps));
+pot_r_min = H(1,1);
+pot_r_max = H(end,1);
+pot_F_min = H(1,2);
+
+Fij = H_interpolant(r);
+
+Fij(r >= rc | r >= pot_r_max) = 0;
+Fij(isnan(Fij) & r < pot_r_min) = pot_F_min;
+Fij(isnan(Fij) & r >= pot_r_max) = 0;
+
+inv_r = 1./r;
+inv_r(isinf(inv_r))=0;
+fx = Fij .* d_mic(:,1) .* inv_r;
+fy = Fij .* d_mic(:,2) .* inv_r;
+fz = Fij .* d_mic(:,3) .* inv_r;
+N_total = max([max(pairs_i), max(pairs_j), N]);
+
+Fx = accumarray(pairs_i, fx, [N_total,1]) - accumarray(pairs_j, fx, [N_total,1]);
+Fy = accumarray(pairs_i, fy, [N_total,1]) - accumarray(pairs_j, fy, [N_total,1]);
+Fz = accumarray(pairs_i, fz, [N_total,1]) - accumarray(pairs_j, fz, [N_total,1]);
+
+totalforces = [Fx Fy Fz];
+
+% convert to displacements
+potdisp = totalforces * (S.esdiff / S.kbT) * S.timestep;
+
+% clamp
+maxstep = S.pot_clamp * sqrt(3) * S.stdx;
+norms = vecnorm(potdisp,2,2);
+overshoot = norms > maxstep;
+if any(overshoot)
+    potdisp(overshoot,:) = potdisp(overshoot,:) .* (maxstep ./ norms(overshoot));
 end
 
-% Vector forces
-dirs = d_mic ./ rr;
-Fvec = Fmag .* dirs;  % Kx3
-
-%% ------------------------------------------------------------------------
-% 8) Accumulate ±F
-Fx = accumarray([i_idx; j_idx], [Fvec(:,1); -Fvec(:,1)], [N 1]);
-Fy = accumarray([i_idx; j_idx], [Fvec(:,2); -Fvec(:,2)], [N 1]);
-Fz = accumarray([i_idx; j_idx], [Fvec(:,3); -Fvec(:,3)], [N 1]);
-
-disppot = [Fx Fy Fz];
+disppot = potdisp;
 end
