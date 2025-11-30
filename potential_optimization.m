@@ -11,37 +11,45 @@ for mn=1:14
             [disppot2,pairs_i,pairs_j,d_mic_out] = potential_displacements_v2(p, S, H,H_interpolant, 0);
         times2(mn,irep)=toc;
 
-        tic
-            [disppot3,pairs_i,pairs_j,d_mic_out] = potential_displacements_v3(p, S, H,H_interpolant, 0);
-        times3(mn,irep)=toc;
-   
         % tic
-        %     [disppot4,pairs_i,pairs_j,d_mic_out] = potential_displacements_v4(p, S, H,H_interpolant, 0);
+        %     [disppot3,pairs_i,pairs_j,d_mic_out] = potential_displacements_v3(p, S, H,H_interpolant, 0);
+        % times3(mn,irep)=toc;
+        % 
+        % tic
+        %     [disppot4] = potential_displacements_v4(p, S, H,H_interpolant, 0);
         % times4(mn,irep)=toc;
-
+        % 
         % tic
-        %     [disppot5,pairs_i,pairs_j,d_mic_out] = potential_displacements_v5(p, S, H,H_interpolant);
+        %     [disppot5] = potential_displacements_v5(p, S, H,H_interpolant);
         % times5(mn,irep)=toc;
-
+        % 
         % tic
-        %     [disppot6,pairs_i,pairs_j,d_mic_out] = potential_displacements_v6(p, S, H,H_interpolant);
+        %     [disppot6] = potential_displacements_v6(p, S, H,H_interpolant);
         % times6(mn,irep)=toc;
+        % 
+        % tic
+        %     [disppot7] = potential_displacements_v7(p, S, H, H_interpolant, 0, cacheSizeMB);
+        % times7(mn,irep)=toc;
+        % 
+        % tic
+        %     [disppot8] = potential_displacements_v8(p, S, H, H_interpolant, 0, cacheSizeMB);
+        % times8(mn,irep)=toc;
+        % 
+        % tic
+        %     [disppot9] = potential_displacements_v9(p, S, H, H_interpolant, 0, cacheSizeMB);
+        % times9(mn,irep)=toc;
+        % 
+        % tic
+        %     [disppot10] = potential_displacements_v10(p, S, H, H_interpolant, 0, cacheSizeMB);
+        % times10(mn,irep)=toc;
+        % 
+        % tic
+        %     [disppot11] = potential_displacements_v11(p, S, H, H_interpolant, 0, cacheSizeMB);
+        % times11(mn,irep)=toc;
 
         tic
-            [disppot7,pairs_i,pairs_j,d_mic_out] = potential_displacements_v7(p, S, H, H_interpolant, 0, cacheSizeMB);
-        times7(mn,irep)=toc;
-
-        tic
-            [disppot8,pairs_i,pairs_j,d_mic_out] = potential_displacements_v8(p, S, H, H_interpolant, 0, cacheSizeMB);
-        times8(mn,irep)=toc;
-
-        tic
-            [disppot9,pairs_i,pairs_j,d_mic_out] = potential_displacements_v9(p, S, H, H_interpolant, 0, cacheSizeMB);
-        times9(mn,irep)=toc;
-
-        tic
-            [disppot10,pairs_i,pairs_j,d_mic_out] = potential_displacements_v10(p, S, H, H_interpolant, 0, cacheSizeMB);
-        times10(mn,irep)=toc;
+            [disppot12] = potential_displacements_v12(p, S, H, H_interpolant, 0, cacheSizeMB);
+        times12(mn,irep)=toc;
 
         disp([mn,irep])
     end
@@ -49,23 +57,27 @@ for mn=1:14
 end
 times(:,1)=N;
 times(:,2)=mean(times2,2);
-times(:,3)=mean(times3,2);
+% times(:,3)=mean(times3,2);
 % times(:,4)=mean(times4,2);
 % times(:,5)=mean(times5,2);
 % times(:,6)=mean(times6,2);
-times(:,7)=mean(times7,2);
-times(:,8)=mean(times8,2);
-times(:,9)=mean(times9,2);
-times(:,10)=mean(times10,2);
+% times(:,7)=mean(times7,2);
+% times(:,8)=mean(times8,2);
+% times(:,9)=mean(times9,2);
+% times(:,10)=mean(times10,2);
+% times(:,11)=mean(times11,2);
+times(:,12)=mean(times12,2);
 figure
 loglog(times(:,1),times(:,2))
 hold
-loglog(times(:,1),times(:,3))
+% loglog(times(:,1),times(:,3))
 % loglog(times(:,1),times(:,4))
 % loglog(times(:,1),times(:,5))
 % loglog(times(:,1),times(:,6))
-loglog(times(:,1),times(:,7))
-loglog(times(:,1),times(:,8))
-loglog(times(:,1),times(:,9))
-loglog(times(:,1),times(:,10))
-lgd = legend('v2', 'v3', 'v7', 'v8', 'v9', 'v10');
+% loglog(times(:,1),times(:,7))
+% loglog(times(:,1),times(:,8))
+% loglog(times(:,1),times(:,9))
+% loglog(times(:,1),times(:,10))
+% loglog(times(:,1),times(:,11))
+loglog(times(:,1),times(:,12))
+lgd = legend('v2', 'v3', 'v4', 'v5', 'v6', 'v7', 'v8', 'v9', 'v10', 'v11', 'v12');

@@ -14,7 +14,7 @@ function [disppot,pairs_i,pairs_j,d_mic_out] = potential_displacements_v9(p, S, 
 % H_interpolant: function handle returning force magnitude F(r)
 % ghostghost: kept for compatibility
 % cacheSizeMB: optional, override CPU L3 cache size (per core). Default = 20 MB.
-
+return_pairs = (nargout > 1);
 if nargin < 5, ghostghost = 0; end
 if S.bc ~= 2
     error('Blocked version only supports cubic PBC (S.bc == 2).');
@@ -63,11 +63,13 @@ Fy = zeros(N,1);
 Fz = zeros(N,1);
 
 % Before block loops, estimate max pairs
-max_pairs = N * min(100, ceil(4/3*pi*rc^3 * N/(L^3)));
-I_list = zeros(max_pairs, 1, 'uint32');
-J_list = zeros(max_pairs, 1, 'uint32');
-d_list = zeros(max_pairs, 3);
-pair_count = 0;
+if return_pairs
+    max_pairs = N * min(100, ceil(4/3*pi*rc^3 * N/(L^3)));
+    I_list = zeros(max_pairs, 1, 'uint32');
+    J_list = zeros(max_pairs, 1, 'uint32');
+    d_list = zeros(max_pairs, 3);
+    pair_count = 0;
+end
 
 pot_r_min = H_mat(1,1);
 pot_r_max = H_mat(end,1);
@@ -162,23 +164,7 @@ for ii = 1:B:N
         fy = Fij .* dloc(:,2) .* inv_r;
         fz = Fij .* dloc(:,3) .* inv_r;
 
-        %% 7. Accumulate forces
-        % Fx = Fx + accumarray(Ii, fx, [N 1]) - accumarray(Jj, fx, [N 1]);
-        % Fy = Fy + accumarray(Ii, fy, [N 1]) - accumarray(Jj, fy, [N 1]);
-        % Fz = Fz + accumarray(Ii, fz, [N 1]) - accumarray(Jj, fz, [N 1]);
-
-        %% 7. Accumulate forces using sparse matrix trick
-        % np = length(Ii);  % number of pairs in this block
-        % 
-        % % Build sparse accumulation matrices (only once per block)
-        % S_add = sparse([Ii; Jj], [1:np, 1:np], [ones(np,1); -ones(np,1)], N, np);
-        % 
-        % % Accumulate all 3 dimensions at once
-        % F_block = S_add * [fx, fy, fz];  % N x 3
-        % 
-        % Fx = Fx + F_block(:,1);
-        % Fy = Fy + F_block(:,2);
-        % Fz = Fz + F_block(:,3);
+        
 
         %% 7. Accumulate forces directly
         for k = 1:length(Ii)
@@ -192,33 +178,23 @@ for ii = 1:B:N
             Fz(Jj(k)) = Fz(Jj(k)) - fz(k);
         end
 
-        % %% 7. Accumulate forces with combined indexing
-        % np = length(Ii);
-        % 
-        % % Create combined index and value arrays
-        % idx_combined = [Ii; Jj];           % length 2*np
-        % vals_x = [fx; -fx];                 % length 2*np
-        % vals_y = [fy; -fy];
-        % vals_z = [fz; -fz];
-        % 
-        % % Single accumarray per dimension
-        % Fx = Fx + accumarray(idx_combined, vals_x, [N 1]);
-        % Fy = Fy + accumarray(idx_combined, vals_y, [N 1]);
-        % Fz = Fz + accumarray(idx_combined, vals_z, [N 1]);
-
         %% record pairs (optional)
         % Inside block loops, replace concatenation:
-        n_new = length(Ii);
-        I_list(pair_count+1:pair_count+n_new) = Ii;
-        J_list(pair_count+1:pair_count+n_new) = Jj;
-        d_list(pair_count+1:pair_count+n_new, :) = dloc;
-        pair_count = pair_count + n_new;
+        if return_pairs
+            n_new = length(Ii);
+            I_list(pair_count+1:pair_count+n_new) = Ii;
+            J_list(pair_count+1:pair_count+n_new) = Jj;
+            d_list(pair_count+1:pair_count+n_new, :) = dloc;
+            pair_count = pair_count + n_new;
+        end
     end
 end
+if return_pairs
 % After loops, trim:
 I_list = I_list(1:pair_count);
 J_list = J_list(1:pair_count);
 d_list = d_list(1:pair_count, :);
+end
 
 %% 8. Final forces → displacements
 totalforces = [Fx Fy Fz];
@@ -232,8 +208,9 @@ if any(overshoot)
 end
 
 disppot = potdisp;
-
-pairs_i = uint32(I_list);
-pairs_j = uint32(J_list);
-d_mic_out = d_list;
+if return_pairs        
+    pairs_i = uint32(I_list);
+    pairs_j = uint32(J_list);
+    d_mic_out = d_list;
+end
 end

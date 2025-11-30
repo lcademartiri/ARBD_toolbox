@@ -1,4 +1,4 @@
-function [disppot,pairs_i,pairs_j,d_mic_out] = potential_displacements_v10(p, S, H_mat, H_interpolant, ghostghost, cacheSizeMB)
+function disppot = potential_displacements_v11(p, S, H_mat, H_interpolant, ghostghost, cacheSizeMB)
 % Blockified version of potential_displacements_v3
 % Automatically selects block size based on cache size
 % Handles cubic PBC (S.bc == 2) only
@@ -14,7 +14,6 @@ function [disppot,pairs_i,pairs_j,d_mic_out] = potential_displacements_v10(p, S,
 % H_interpolant: function handle returning force magnitude F(r)
 % ghostghost: kept for compatibility
 % cacheSizeMB: optional, override CPU L3 cache size (per core). Default = 20 MB.
-
 if nargin < 5, ghostghost = 0; end
 if S.bc ~= 2
     error('Blocked version only supports cubic PBC (S.bc == 2).');
@@ -25,55 +24,44 @@ end
 
 N = size(p,1);
 L = 2*S.br;
+invL=1/L;
 rc = S.rc;
 
 %% 0. Choose block size based on cache
-% Memory per double = 8 bytes
-% We must fit approx 3 matrices of size BxB into cache (xdiff, ydiff, zdiff)
-% overhead factor = 1.2 for safety
-% doubles=3*N... Fs
-%     +3*N... ps
-%     +3*N... p
-%     +3*B... pis
-%     +3*B... pjs
-%     +3*B^2 ... diffs
-%     +B^2 ... tmp_r2 (up to)
-%     +3*B^2 ... r2+rr+invr
-%     +2*B^2 ... ii_local & jj_local (up to)
-%     +3*B^2; % d_loc (up to)
-% doubles=9*N+12*B^2+6*B;
-% 
-% 
-% 
-% logicals=B^2 ... mask
-%     + B^2; % mask_flat
-% logicals=2*B^2;
+% Formula provided:
+% Doubles  = 6*N + 4*B^2 + 6*B
+% Logicals = 1*B^2
+%
+% Bytes = 8 * (6*N + 4*B^2 + 6*B) + 1 * (B^2)
+%       = 48*N + 32*B^2 + 48*B + 1*B^2
+%       = 33*B^2 + 48*B + 48*N
 
-bytesPerBlock = cacheSizeMB * 1048576 / 1.2;
-if (72*N) < bytesPerBlock
-    B = floor( sqrt( (bytesPerBlock - 72*N) / 98 ) );
+bytesPerBlock = cacheSizeMB * 1048576 / 1.2; % Safety factor 1.2
+overhead_N = 48 * N;
+
+if overhead_N < bytesPerBlock
+    % We have space for the N vectors in cache, solve for B
+    % 33*B^2 approx (Bytes - 48*N)
+    available = bytesPerBlock - overhead_N;
+    B = floor(sqrt(available / 33));
 else
-    B = floor( sqrt( bytesPerBlock / 98 ) );
+    % N vectors occupy more than cache (streaming mode)
+    % We just ensure the BxB blocks fit
+    B = floor(sqrt(bytesPerBlock / 33));
 end
-% B = max(200, min(B, 2000));  % enforce reasonable bounds
-
-% For output
-Fx = zeros(N,1);
-Fy = zeros(N,1);
-Fz = zeros(N,1);
-
-% Before block loops, estimate max pairs
-max_pairs = N * min(100, ceil(4/3*pi*rc^3 * N/(L^3)));
-I_list = zeros(max_pairs, 1, 'uint32');
-J_list = zeros(max_pairs, 1, 'uint32');
-d_list = zeros(max_pairs, 3);
-pair_count = 0;
+B = max(1, B);
 
 pot_r_min = H_mat(1,1);
 pot_r_max = H_mat(end,1);
 pot_F_min = H_mat(1,2);
 
-px = p(:,1); py = p(:,2); pz = p(:,3);
+px = p(:,1); 
+py = p(:,2); 
+pz = p(:,3);
+
+Fx = zeros(N,1);
+Fy = zeros(N,1);
+Fz = zeros(N,1);
 
 %% BLOCK LOOPS
 for ii = 1:B:N
@@ -95,119 +83,119 @@ for ii = 1:B:N
         % BLOCK SIZE
         ni = i_end - ii + 1;
         nj = j_end - jj + 1;
+        r2 = zeros(numel(pi_x),numel(pj_x));
 
         %% 1. Compute differences for block
-        cdiff = pi_x - pj_x.';   % ni x nj
-        cdiff = cdiff - L.*round(cdiff./L);
-        mask = (abs(cdiff)<=rc);
-        if ~any(mask(:)), continue; end
+        cdiff = pi_x - pj_x.';   % ni x nj        
+        cdiff = cdiff - L.*round(cdiff.*invL);
+        r2 = cdiff.^2;
+
         cdiff = pi_y - pj_y.';   % ni x nj
         cdiff = cdiff - L.*round(cdiff./L);
-        mask = mask & (abs(cdiff)<=rc);
-        if ~any(mask(:)), continue; end
+        r2 = r2+cdiff.^2;
+
         cdiff = pi_z - pj_z.';   % ni x nj
         cdiff = cdiff - L.*round(cdiff./L);
-        mask = mask & (abs(cdiff)<=rc);
-        if ~any(mask(:)), continue; end
-        [ii_local, jj_local] = find(mask);
+        r2 = r2+cdiff.^2;
 
-        %% Recompute only for valid pairs (cheap for sparse systems)
-        dx = pi_x(ii_local) - pj_x(jj_local);
-        dy = pi_y(ii_local) - pj_y(jj_local);
-        dz = pi_z(ii_local) - pj_z(jj_local);
-        
-        dx = dx - L*round(dx/L);
-        dy = dy - L*round(dy/L);
-        dz = dz - L*round(dz/L);
-        
-        r2 = dx.^2 + dy.^2 + dz.^2;
-        mask_radial = r2 <= rc^2;
-
-        %% 4. r2 only for masked entries
-        mask_flat = mask(:);
-        if ~any(mask_flat), continue; end
-        tmp_r2 = cdiff(mask_flat).^2 + ydiff(mask_flat).^2 + zdiff(mask_flat).^2;
-        r2 = zeros(ni, nj);
-        r2(mask) = tmp_r2;
-        % radial cutoff
-        mask = mask & (r2 <= rc^2);
-        if ~any(mask(:)), continue; end
-
-        %% 5. Extract valid (i_local, j_local)
-        [ii_local, jj_local] = find(mask);
-
-        if isempty(ii_local), continue; end
-
-        % If diagonal block (jj==ii) filter to i_local < j_local
-        if jj == ii
-            ok = ( (ii_local - 1) < (jj_local - 1) );       % since both are offsets inside same block
-            if ~any(ok), continue; end
-            ii_local = ii_local(ok);
-            jj_local = jj_local(ok);
-            % FILTER ALL dependent vectors
-            mask_idx = find(mask);       % linear indices of final mask
-            mask_idx = mask_idx(ok);     % keep only ones consistent with diag-filter
-        
-            % rebuild dloc, rr, Fij inputs using filtered mask
-            dloc = [cdiff(mask_idx), ydiff(mask_idx), zdiff(mask_idx)];
-            rr   = sqrt(r2(mask_idx));
-        else
-            mask_idx = find(mask);
-            dloc = [cdiff(mask_idx), ydiff(mask_idx), zdiff(mask_idx)];
-            rr   = sqrt(r2(mask_idx));
+        mask=r2<rc^2;
+        if ii == jj
+             mask = triu(mask, 1);
         end
+        if ~any(mask(:)), continue; end
+        [rows, cols] = find(mask);
 
-        % global indices
-        Ii = ii - 1 + ii_local;
-        Jj = jj - 1 + jj_local;
-
-        %% 6. Force magnitude from interpolant
+        % =================================================================
+        % PASS 2: Calculate Scalar Force Factor
+        % =================================================================
+        % We calculate F(r)/r. This depends only on r2.
+        
+        rr = sqrt(r2(mask));
+        
         Fij = H_interpolant(rr);
-
-        Fij(rr>=rc | rr>=pot_r_max) = 0;
-        bad = isnan(Fij);
-        Fij(bad & rr<pot_r_min) = pot_F_min;
-        Fij(bad & rr>=pot_r_max) = 0;
-
+        Fij(rr >= rc | rr >= pot_r_max) = 0;
+        if any(isnan(Fij))
+            bad = isnan(Fij);
+            Fij(bad & rr < pot_r_min) = pot_F_min;
+            Fij(bad & rr >= pot_r_max) = 0;
+        end
+        % Projection factor: F / r
         inv_r = 1./rr;
         inv_r(isinf(inv_r)) = 0;
+        
+        % Sparse Scalar Force stored in Dense Matrix shape
+        % Using zeros() is faster than sparse() for temporary math
+        f_scalar = Fij .* inv_r;
 
-        fx = Fij .* dloc(:,1) .* inv_r;
-        fy = Fij .* dloc(:,2) .* inv_r;
-        fz = Fij .* dloc(:,3) .* inv_r;
+        % =================================================================
+        % PASS 3: Vectorized Recalculation (Low Memory)
+        % =================================================================
+        % 1. Gather coordinates (pi_x(rows) is vector lookup)
+        % 2. Compute component force vectors
+        
+        dx_val = pi_x(rows) - pj_x(cols);
+        dx_val = dx_val - L .* round(dx_val .* invL);
+        fx_val = f_scalar .* dx_val;
+        
+        dy_val = pi_y(rows) - pj_y(cols);
+        dy_val = dy_val - L .* round(dy_val .* invL);
+        fy_val = f_scalar .* dy_val;
+        
+        dz_val = pi_z(rows) - pj_z(cols);
+        dz_val = dz_val - L .* round(dz_val .* invL);
+        fz_val = f_scalar .* dz_val;
 
-        % 7. Accumulate forces directly
-        for k = 1:length(Ii)
-            Fx(Ii(k)) = Fx(Ii(k)) + fx(k);
-            Fx(Jj(k)) = Fx(Jj(k)) - fx(k);
-
-            Fy(Ii(k)) = Fy(Ii(k)) + fy(k);
-            Fy(Jj(k)) = Fy(Jj(k)) - fy(k);
-
-            Fz(Ii(k)) = Fz(Ii(k)) + fz(k);
-            Fz(Jj(k)) = Fz(Jj(k)) - fz(k);
+        % =================================================================
+        % PASS 4: Direct Accumulation (The requested optimization)
+        % =================================================================
+        % This replaces 'accumarray'. It iterates only over the valid pairs.
+        % Using global indices for direct update.
+        
+        Ii = (ii - 1) + rows;
+        Jj = (jj - 1) + cols;
+        n_pairs = length(Ii);
+        
+        for k = 1:n_pairs
+            gI = Ii(k);
+            gJ = Jj(k);
+            
+            % Update I
+            Fx(gI) = Fx(gI) + fx_val(k);
+            Fy(gI) = Fy(gI) + fy_val(k);
+            Fz(gI) = Fz(gI) + fz_val(k);
+            
+            % Update J (Newton's 3rd)
+            Fx(gJ) = Fx(gJ) - fx_val(k);
+            Fy(gJ) = Fy(gJ) - fy_val(k);
+            Fz(gJ) = Fz(gJ) - fz_val(k);
         end
 
-        %% record pairs (optional)
-        % Inside block loops, replace concatenation:
-        n_new = length(Ii);
-        I_list(pair_count+1:pair_count+n_new) = Ii;
-        J_list(pair_count+1:pair_count+n_new) = Jj;
-        d_list(pair_count+1:pair_count+n_new, :) = dloc;
-        pair_count = pair_count + n_new;
+
+        % =================================================================
+        % Optional: Pairs
+        % =================================================================
+        if return_pairs
+            if pair_count + n_pairs > length(I_list)
+                growth = max(n_pairs, 100000);
+                I_list(end+growth) = 0;
+                J_list(end+growth) = 0;
+                d_list(end+growth,3) = 0;
+            end
+            
+            rng = pair_count+1 : pair_count+n_pairs;
+            I_list(rng) = Ii;
+            J_list(rng) = Jj;
+            d_list(rng, :) = [dx_val, dy_val, dz_val];
+            pair_count = pair_count + n_pairs;
+        end
     end
 end
-% After loops, trim:
-I_list = I_list(1:pair_count);
-J_list = J_list(1:pair_count);
-d_list = d_list(1:pair_count, :);
-
-%% 8. Final forces → displacements
+% Finalize
 totalforces = [Fx Fy Fz];
 potdisp = totalforces * (S.esdiff / S.kbT) * S.timestep;
 
 maxstep = S.pot_clamp * sqrt(3) * S.stdx;
-norms = vecnorm(potdisp,2,2);
+norms = vecnorm(potdisp, 2, 2);
 overshoot = norms > maxstep;
 if any(overshoot)
     potdisp(overshoot,:) = potdisp(overshoot,:) .* (maxstep ./ norms(overshoot));
@@ -215,7 +203,9 @@ end
 
 disppot = potdisp;
 
-pairs_i = uint32(I_list);
-pairs_j = uint32(J_list);
-d_mic_out = d_list;
+if return_pairs
+    pairs_i = uint32(I_list(1:pair_count));
+    pairs_j = uint32(J_list(1:pair_count));
+    d_mic_out = d_list(1:pair_count, :);
+end
 end
