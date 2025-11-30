@@ -46,10 +46,14 @@ for mn=1:14
         % tic
         %     [disppot11] = potential_displacements_v11(p, S, H, H_interpolant, 0, cacheSizeMB);
         % times11(mn,irep)=toc;
+        % 
+        % tic
+        %     [disppot12] = potential_displacements_v12(p, S, H, H_interpolant, 0, cacheSizeMB);
+        % times12(mn,irep)=toc;
 
         tic
-            [disppot12] = potential_displacements_v12(p, S, H, H_interpolant, 0, cacheSizeMB);
-        times12(mn,irep)=toc;
+            [disppot13] = potential_displacements_v13(p, S, H, H_interpolant, 0, cacheSizeMB);
+        times13(mn,irep)=toc;
 
         disp([mn,irep])
     end
@@ -66,7 +70,8 @@ times(:,2)=mean(times2,2);
 % times(:,9)=mean(times9,2);
 % times(:,10)=mean(times10,2);
 % times(:,11)=mean(times11,2);
-times(:,12)=mean(times12,2);
+% times(:,12)=mean(times12,2);
+times(:,13)=mean(times13,2);
 figure
 loglog(times(:,1),times(:,2))
 hold
@@ -79,5 +84,6 @@ hold
 % loglog(times(:,1),times(:,9))
 % loglog(times(:,1),times(:,10))
 % loglog(times(:,1),times(:,11))
-loglog(times(:,1),times(:,12))
-lgd = legend('v2', 'v3', 'v4', 'v5', 'v6', 'v7', 'v8', 'v9', 'v10', 'v11', 'v12');
+% loglog(times(:,1),times(:,12))
+loglog(times(:,1),times(:,13))
+lgd = legend('v2', 'v13');
