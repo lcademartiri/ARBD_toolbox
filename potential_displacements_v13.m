@@ -51,7 +51,7 @@ function potdisp = potential_displacements_v13(p, S, H, H_interpolant, ghostghos
     if S.bc==1 || S.bc==4
     
         N_total = size(p,1);
-        N = N_total;
+        N = S.N;
         
         [idx_list, ~] = rangesearch(p, p, rc);
         
@@ -79,7 +79,7 @@ function potdisp = potential_displacements_v13(p, S, H, H_interpolant, ghostghos
         end
         
         % N_total must cover all particles, even those with no collisions
-        N_total = max([max(pairs_i), max(pairs_j), N]);
+        % N_total = max([max(pairs_i), max(pairs_j), N]);
         rc = S.rc;
         
         dx = d_mic(:,1);
