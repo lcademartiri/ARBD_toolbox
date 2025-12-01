@@ -12,8 +12,8 @@ S.rc=3*S.pot_sigma;
 S.fdxconv=(S.esdiff*S.alpha/S.kbT)*S.timestep;
 
 % parameters
-phis=logspace(log10(1e-5),log10(1e-3),3)';
-Ns=ceil(logspace(log10(1e3),log10(1e3),1)');
+phis=logspace(log10(1e-7),log10(1e-3),3)';
+Ns=ceil(logspace(log10(2),log10(2),1)');
 clms=(1)';
 
 c=[];
@@ -61,81 +61,101 @@ for ic=1:noconds
     cellcenters=[cellcenters;padding(2:end,1)];
     cellcenters=sort(unique([-cellcenters;cellcenters]));
     celledges=[cellcenters(1)-S.cl/2;cellcenters+S.cl/2];
-    % morton indices
+    % morton indices calculated on the cellcenters^3 meshgrid which
+    % includes padding 
     morton_grid_dim=[padded_grid_size,padded_grid_size,padded_grid_size];
     num_morton_cells = prod(morton_grid_dim);
     [X, Y, Z] = ndgrid(0:morton_grid_dim(1)-1, 0:morton_grid_dim(2)-1, 0:morton_grid_dim(3)-1);
-    morton_idx = zeros(size(X));
-    % FIX: Loop up to needed_bits-1 instead of hardcoded 9
+    MI = zeros(size(X));
     for b = 0:(needed_bits-1)
-        morton_idx = bitor(morton_idx, bitshift(bitget(X, b+1), 3*b + 0));
-        morton_idx = bitor(morton_idx, bitshift(bitget(Y, b+1), 3*b + 1));
-        morton_idx = bitor(morton_idx, bitshift(bitget(Z, b+1), 3*b + 2));
+        MI = bitor(MI, bitshift(bitget(X, b+1), 3*b + 0));
+        MI = bitor(MI, bitshift(bitget(Y, b+1), 3*b + 1));
+        MI = bitor(MI, bitshift(bitget(Z, b+1), 3*b + 2));
     end
-    % neighbor list
+    % calculate cell cartesian offsets within rc - include self
     [dX, dY, dZ] = meshgrid(-S.clm:S.clm, -S.clm:S.clm, -S.clm:S.clm);
     offsets = single([dX(:), dY(:), dZ(:)]);
-    % offsets(ceil(size(offsets,1)/2),:)=[];
     no=size(offsets,1);
-    if max(morton_idx,[],'all') > 2e9
-        NeighborTable = zeros(num_morton_cells, no, 'uint32'); % Use UINT32
+    if max(MI,[],'all') > 2e9
+        NL = zeros(num_morton_cells, no, 'uint32'); % Use UINT32
     else
-        NeighborTable = zeros(num_morton_cells, no, 'int32'); 
+        NL = zeros(num_morton_cells, no, 'int32'); 
     end
-    for ix=padding_cells:padded_grid_size-padding_cells
-        for iy=padding_cells:padded_grid_size-padding_cells
-            for iz=padding_cells:padded_grid_size-padding_cells
-                mi=morton_idx(ix,iy,iz);
-                for io=1:no
+    % determine neighbor table only for physical meshgrid (without padding)
+    idxphys=histcounts([-maxr,maxr],celledges);
+    vi=find(idxphys); 
+
+    for ix=vi(1):vi(2)
+        for iy=vi(1):vi(2)
+            for iz=vi(1):vi(2)
+                mi=MI(ix,iy,iz); % Morton index of center cell
+                for io=1:no % loop over all cells in rc range
                     nx = ix + offsets(io, 1);
                     ny = iy + offsets(io, 2);
                     nz = iz + offsets(io, 3);
-                    neigh_morton_idx = morton_idx(nx, ny, nz);
-                    NeighborTable(mi, io) = neigh_morton_idx;
+                    % append Morton index of the cells in rc range at row 
+                    % associated with Morton index of the center cell
+                    neigh_morton_idx = MI(nx, ny, nz);
+                    NL(mi, io) = neigh_morton_idx; 
                 end                
             end
         end
     end
-    vi=[find(abs(cellcenters-S.cl/2)<maxr,1)-1,find((cellcenters+S.cl/2)>maxr,1)]; % physical span of reachable cells
-    morton_idx_phys=morton_idx(vi(1):vi(2),vi(1):vi(2),vi(1):vi(2));
-    vmi=morton_idx_phys(:);
+    MIP=MI(vi(1):vi(2),vi(1):vi(2),vi(1):vi(2));
+    XP=X(vi(1):vi(2),vi(1):vi(2),vi(1):vi(2))+1;
+    XP=XP(:);
+    YP=Y(vi(1):vi(2),vi(1):vi(2),vi(1):vi(2))+1;
+    YP=YP(:);
+    ZP=Z(vi(1):vi(2),vi(1):vi(2),vi(1):vi(2))+1;
+    ZP=ZP(:);
+    vXYZP=[XP,YP,ZP];
+    vMIP=MIP(:);
+    
     % cleanup and organization
     
     cc_cl=single(cellcenters/S.cl); % cell center coordinates in single reduced dims
     ce_cl=single(celledges/S.cl); % cell center coordinates in single reduced dims
-    vind=vi; % physical span of reachable cells
-    vcc_cl=cc_cl(vind(1):vind(2),1); % cell center coordinates in single reduced dims
-    vce_cl=ce_cl(vind(1):vind(2),1); % cell center coordinates in single reduced dims
-    vmi=sort(vmi); % sorted list of physically reachable morton indices
-    pmmi=morton_idx_phys; % map between coordinate indices and morton indices
-    pmmig=size(pmmi,1);
-    nl=NeighborTable; % neighbor list in morton indices;
-    clear NeighborTable morton_idx_phys celledges cellcenters vi dX dY dZ X Y Z padding* io ix iy iz b neigh_morton_idx
+    cc=double(cc_cl*S.cl); % cell center coordinates in double real dims
+    ce=double(ce_cl*S.cl); % cell center coordinates in double real dims
+    ccp=cc(vi(1):vi(2),1); % physical cell center coordinates in double real dims
+    ccp_cl=single(ccp.*S.icl);  % physical cell center coordinates in single reduced dims
+    vMIP=sort(vMIP); % sorted list of physically reachable morton indices
+    b=size(MIP,1); % number of physical cells
+    NL=NL; % neighbor list in morton indices;
+    vi=vi; % map of physical cells on logical cells
+
+    % clear NeighborTable morton_idx_phys celledges cellcenters vi dX dY dZ X Y Z padding* io ix iy iz b neigh_morton_idx
 
     % generate starting particle configuration
     p=fillSphere(S.N,S.br,S.rp,0);
+    %%%% DUMMY DEBUGGING P
+        p=[47,47,47]+offsets;
+        p=ccp(p);
+    %%%%
     p_cl=single(p.*S.icl);
     pcli=floor(p_cl);
     pcll=p_cl-pcli;
-    offset_to_physical = 1+pmmig/2; % From your setup code
+    offset_to_physical = 1+b/2; % From your setup code
     ix = pcli(:,1) + offset_to_physical;
     iy = pcli(:,2) + offset_to_physical;
     iz = pcli(:,3) + offset_to_physical;
-    lin_idx = ix + (iy-1)*pmmig + (iz-1)*pmmig^2;
-    p_morton_id = pmmi(lin_idx);
+    lin_idx = ix + (iy-1)*b + (iz-1)*b^2; % correct
+    p_morton_id = MIP(lin_idx);
+    
     [sorted_p_mid, sort_perm] = sort(p_morton_id);
     sorted_p = p(sort_perm, :);
     sorted_p_cl = p_cl(sort_perm, :);
     sorted_pcli = pcli(sort_perm, :);
     sorted_pcll = pcll(sort_perm, :);
-    max_morton_id = size(nl, 1);
+    sorted_p_morton_id=sort(p_morton_id);
+    max_morton_id = size(NL, 1);
     for it=1:1e2
         tic
         counts = (histcounts(sorted_p_mid, 1:(max_morton_id+1)))';
         starts = [1; cumsum(counts(1:end-1)) + 1];
         sorted_forces = zeros(S.N, 3, 'single');
-        for k=1:length(vmi)
-            i_cell = vmi(k);
+        for k=1:length(vMIP)
+            i_cell = vMIP(k);
             % Skip if cell is empty
             count_i = counts(i_cell);
             if count_i == 0, continue; end
@@ -144,7 +164,7 @@ for ic=1:noconds
             range_i = start_i : (start_i + count_i - 1);
              
             % 2. Identify Valid Neighbors
-            neigh_ids = nl(i_cell, :);          % 1x27 vector of Morton IDs
+            neigh_ids = NL(i_cell, :)';          % 1x27 vector of Morton IDs
             neigh_counts = counts(neigh_ids);   % 1x27 vector of particle counts
             
             % 3. Filter out empty neighbors immediately
@@ -154,7 +174,6 @@ for ic=1:noconds
             valid_mask = neigh_counts > 0;
             valid_ids=neigh_ids(valid_mask);
             valid_starts=starts(valid_ids);
-            
             valid_counts=counts(valid_ids);
             
             temp_map = repelem(1:length(valid_counts), valid_counts);
@@ -168,7 +187,7 @@ for ic=1:noconds
             self_local = sorted_pcll(range_i, :);
             neighbors_local = sorted_pcll(valid_indices, :);
             neighbors_projected = neighbors_local + expanded_shifts;
-    
+            %%% VERIFIED AS WORKING IN SBC TILL HERE
             dr_red = reshape(neighbors_projected, [1, numel(valid_indices), 3]) - ...
             reshape(self_local, [count_i, 1, 3]);
             dr_phys = double(dr_red * S.cl);
@@ -230,8 +249,8 @@ for ic=1:noconds
         ix = pcli(:,1) + offset_to_physical;
         iy = pcli(:,2) + offset_to_physical;
         iz = pcli(:,3) + offset_to_physical;
-        lin_idx = ix + (iy-1)*pmmig + (iz-1)*pmmig^2;
-        p_morton_id = pmmi(lin_idx);
+        lin_idx = ix + (iy-1)*b + (iz-1)*b^2;
+        p_morton_id = MIP(lin_idx);
         [sorted_p_mid, sort_perm] = sort(p_morton_id);
         sorted_p = p(sort_perm, :);
         sorted_p_cl = p_cl(sort_perm, :);
