@@ -10,6 +10,7 @@ S.kbT=1.38e-23*298;
 S.pot_epsilon=S.kbT;
 S.rc=3*S.pot_sigma;
 S.fdxconv=(S.esdiff*S.alpha/S.kbT)*S.timestep;
+S.bc=1;
 [~, cmdout] = system('wmic cpu get L2CacheSize, L3CacheSize /value');
 tokens = regexp(cmdout, '\d+', 'match');
 S.cacheSizeMB = (max(str2double(tokens))/1024)/feature('numCores');
@@ -17,12 +18,12 @@ S.opt_ppc=floor(0.5*sqrt((S.cacheSizeMB*1024^2)/(27*36)));
 
 % parameters
 phis=logspace(log10(1e-5),log10(1e-1),5)';
-Ns=ceil(logspace(log10(1e3),log10(1e3),1)');
+Ns=ceil(logspace(log10(1e1),log10(1e5),5)');
 
 c=[];
 q=1;
-for i1=1:5
-    for i2=1:1
+for i1=1:numel(phis)
+    for i2=1:numel(Ns)
             phi=phis(i1);
             N=Ns(i2);
             pv=(4/3)*pi*S.rp^3;
@@ -31,6 +32,9 @@ for i1=1:5
             ndens=N/bv;
             cv=S.opt_ppc/ndens;
             cl=cv^(1/3);
+            if cl<S.rc
+                cl=S.rc;
+            end
             c(q,:)=[S.rp,S.stdx,N,phi,br,bv,S.rc,cl];
             q=q+1;
     end
@@ -43,30 +47,28 @@ for ic=1:noconds
     S.br=c(ic,5);
     S.cl=c(ic,8);
     S.icl=1/S.cl;
-    S.clm=c(ic,9);
+    S.clm=1;
+    % displacement library
     DISP=build_noise_library(S.stdx,1e6);
     DISPcl=single(DISP./S.cl);
     % create cells padded to 2^n for morton indexing
     maxr=S.br+S.rc;
-    cellcenters=(S.cl/2:S.cl:maxr)';
-    if max(cellcenters-S.cl/2)<maxr
-        cellcenters(end+1,:)=cellcenters(end,:)+S.cl;
+    if S.bc==1 || S.bc==4
+        pcs=2*(ceil(maxr/S.cl)+1);
+    else
+        pcs=2*ceil(maxr/S.cl);
     end
-    padded_grid_size=2^nextpow2(numel(cellcenters)*2);
-    padding_cells=(padded_grid_size/2)-numel(cellcenters);
-    if padding_cells<1+S.clm
-        padding_cells=1+S.clm;
-        padded_grid_size=2*(numel(cellcenters)+padding_cells);
-    end
-    needed_bits = nextpow2(padded_grid_size); 
-    padding=(max(cellcenters):S.cl:padding_cells*S.cl+max(cellcenters))';
+
+    lcs=2^nextpow2(pcs);
+    padding_cells=(lcs-pcs)/2;
+    lce=(0:S.cl:0.5*lcs*S.cl)';
+    lce=sort(unique([-lce;lce]));
+    lcc=lce(1:end-1,:)+S.cl/2;
+    needed_bits = nextpow2(lcs); 
     
-    cellcenters=[cellcenters;padding(2:end,1)];
-    cellcenters=sort(unique([-cellcenters;cellcenters]));
-    celledges=[cellcenters(1)-S.cl/2;cellcenters+S.cl/2];
     % morton indices calculated on the cellcenters^3 meshgrid which
     % includes padding 
-    morton_grid_dim=[padded_grid_size,padded_grid_size,padded_grid_size];
+    morton_grid_dim=[lcs,lcs,lcs];
     num_morton_cells = prod(morton_grid_dim);
     [X, Y, Z] = ndgrid(0:morton_grid_dim(1)-1, 0:morton_grid_dim(2)-1, 0:morton_grid_dim(3)-1);
     MI = zeros(size(X));
@@ -75,6 +77,7 @@ for ic=1:noconds
         MI = bitor(MI, bitshift(bitget(Y, b+1), 3*b + 1));
         MI = bitor(MI, bitshift(bitget(Z, b+1), 3*b + 2));
     end
+    MI=MI+1;
     % calculate cell cartesian offsets within rc - include self
     [dX, dY, dZ] = meshgrid(-S.clm:S.clm, -S.clm:S.clm, -S.clm:S.clm);
     offsets = single([dX(:), dY(:), dZ(:)]);
@@ -85,7 +88,7 @@ for ic=1:noconds
         NL = zeros(num_morton_cells, no, 'int32'); 
     end
     % determine neighbor table only for physical meshgrid (without padding)
-    idxphys=histcounts([-maxr,maxr],celledges);
+    idxphys=histcounts([-maxr,maxr],lce);
     vi=find(idxphys); 
 
     for ix=vi(1):vi(2)
@@ -116,8 +119,8 @@ for ic=1:noconds
     
     % cleanup and organization
     
-    cc_cl=single(cellcenters/S.cl); % cell center coordinates in single reduced dims
-    ce_cl=single(celledges/S.cl); % cell center coordinates in single reduced dims
+    cc_cl=single(lcc/S.cl); % cell center coordinates in single reduced dims
+    ce_cl=single(lce/S.cl); % cell center coordinates in single reduced dims
     cc=double(cc_cl*S.cl); % cell center coordinates in double real dims
     ce=double(ce_cl*S.cl); % cell center coordinates in double real dims
     ccp=cc(vi(1):vi(2),1); % physical cell center coordinates in double real dims
@@ -126,8 +129,6 @@ for ic=1:noconds
     b=size(MIP,1); % number of physical cells
     NL=NL; % neighbor list in morton indices;
     vi=vi; % map of physical cells on logical cells
-
-    % clear NeighborTable morton_idx_phys celledges cellcenters vi dX dY dZ X Y Z padding* io ix iy iz b neigh_morton_idx
 
     % generate starting particle configuration
     p=fillSphere(S.N,S.br,S.rp,0);
