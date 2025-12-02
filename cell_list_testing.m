@@ -17,12 +17,12 @@ S.opt_ppc=floor(0.5*sqrt((S.cacheSizeMB*1024^2)/(27*36)));
 
 % parameters
 phis=logspace(log10(1e-5),log10(1e-1),5)';
-Ns=ceil(logspace(log10(1e3),log10(1e3),1)');
+Ns=ceil(logspace(log10(1e3),log10(1e5),5)');
 
 c=[];
 q=1;
 for i1=1:5
-    for i2=1:1
+    for i2=1:5
             phi=phis(i1);
             N=Ns(i2);
             pv=(4/3)*pi*S.rp^3;
