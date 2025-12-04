@@ -1,51 +1,45 @@
 function SSF = ssf_accumulation(p, SSF, index, N)
-    % Ensure p is N x 3
-    if size(p, 2) ~= 3, p = p'; end
 
-    % --- NO ROTATION NEEDED ---
-    % The k-vectors in SSF are already defined in the reciprocal basis 
-    % corresponding to the unrotated p.
-    
-    % Note: Your previous code transposed p for calculation.
-    % sum(exp(-1i * K * p'), 2) is standard if K is (NumK x 3) and p is (N x 3).
-    
-    % Helper for cleaner code
-    function val = calc_sk(kvecs)
-        % kvecs: M x 3
-        % p: N x 3
-        % Result: sum over N particles of exp(-i * k * p)
-        % Argument for exp: (M x 3) * (3 x N) -> (M x N)
-        phase = -1i * (kvecs * p'); 
-        raw = sum(exp(phase), 2); % Sum over particles (dim 2) -> M x 1 vector
-        val = raw; 
+    % Ensure p is N x 3
+    if size(p,2) ~= 3, p = p'; end
+
+    % Helper: compute rho_k = sum_j exp(-i k ⋅ r_j)
+    function rho = calc_rho(kvecs)
+        phase = -1i * (kvecs * p');    % (M x 3)*(3 x N) => (M x N)
+        rho = sum(exp(phase), 2);      % M x 1 complex
     end
 
-    % Calculate Raw sums (Complex numbers)
-    ssf100_raw = calc_sk(SSF.kvec100);
-    ssf010_raw = calc_sk(SSF.kvec010);
-    ssf001_raw = calc_sk(SSF.kvec001);
-    
-    ssf111_raw = calc_sk(SSF.kvec111);
-    
-    ssf110_raw = calc_sk(SSF.kvec110);
-    ssf011_raw = calc_sk(SSF.kvec011);
-    ssf101_raw = calc_sk(SSF.kvec101);
-    
-    % Calculate S(k) = (1/N) * |sum|^2
-    % This is the Static Structure Factor
-    
-    % Store RAW averages (if you want the complex order parameter)
-    % Note: Averaging [100], [010], [001] assumes cubic isotropy of the lattice
-    SSF.SSF100_raw(index,:) = mean([abs(ssf100_raw).^2, abs(ssf010_raw).^2, abs(ssf001_raw).^2], 2) / N;
-    SSF.SSF110_raw(index,:) = mean([abs(ssf110_raw).^2, abs(ssf011_raw).^2, abs(ssf101_raw).^2], 2) / N;
-    SSF.SSF111_raw(index,:) = (abs(ssf111_raw).^2) / N;
-    
-    % Store S(k) (The final real number)
-    % (You seem to be storing the same thing in _raw and non-raw here? 
-    % Usually _raw might imply the complex sum before abs^2, but your code took abs^2.
-    % I will maintain your logic of storing the magnitudes.)
-    
-    SSF.SSF100(index,:) = SSF.SSF100_raw(index,:);
-    SSF.SSF110(index,:) = SSF.SSF110_raw(index,:);
-    SSF.SSF111(index,:) = SSF.SSF111_raw(index,:);
+    % ---- Compute raw complex order parameters ----
+    rho100 = calc_rho(SSF.kvec100);
+    rho010 = calc_rho(SSF.kvec010);
+    rho001 = calc_rho(SSF.kvec001);
+
+    rho110 = calc_rho(SSF.kvec110);
+    rho011 = calc_rho(SSF.kvec011);
+    rho101 = calc_rho(SSF.kvec101);
+
+    rho111 = calc_rho(SSF.kvec111);
+
+    % ---- Store complex ρ_k snapshots (essential!) ----
+    SSF.rho100(index,:) = rho100.';   % 1 x M complex
+    SSF.rho010(index,:) = rho010.';
+    SSF.rho001(index,:) = rho001.';
+
+    SSF.rho110(index,:) = rho110.';
+    SSF.rho011(index,:) = rho011.';
+    SSF.rho101(index,:) = rho101.';
+
+    SSF.rho111(index,:) = rho111.';
+
+    % ---- Compute instantaneous S(k) = |rho_k|^2 / N ----
+    SSF.S100(index,:) = abs(rho100.').^2 / N;
+    SSF.S010(index,:) = abs(rho010.').^2 / N;
+    SSF.S001(index,:) = abs(rho001.').^2 / N;
+
+    SSF.S110(index,:) = abs(rho110.').^2 / N;
+    SSF.S011(index,:) = abs(rho011.').^2 / N;
+    SSF.S101(index,:) = abs(rho101.').^2 / N;
+
+    SSF.S111(index,:) = abs(rho111.').^2 / N;
+
 end

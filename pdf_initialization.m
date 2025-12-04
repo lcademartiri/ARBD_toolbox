@@ -1,4 +1,14 @@
-function PDF=pdf_initialization(S,P)
+function PDF=pdf_initialization(S,P,data_folder)
+
+
+    if S.bc==1
+        filepdfdenom = sprintf('PDFdenom_SBC_%.0e_%.0e_%.0f.mat',S.rp,S.phi,S.N);
+    elseif S.bc==2
+        filepdfdenom = sprintf('PDFdenom_PBCc_%.0e_%.0e_%.0f.mat',S.rp,S.phi,S.N);
+    elseif S.bc==3
+        filepdfdenom = sprintf('PDFdenom_PBCFCC_%.0e_%.0e_%.0f.mat',S.rp,S.phi,S.N);
+    end
+    
     % pdf edges for the azimut
     PDF.pdfedges{1}=linspace(-pi,pi,P.pdfbins(1)+1)';
     % pdf edges for the elevation
@@ -57,4 +67,10 @@ function PDF=pdf_initialization(S,P)
     PDF.centers{1}=PDF.pdfedges{1}(1:end-1,1)+diff(PDF.pdfedges{1})./2;
     PDF.centers{2}=PDF.pdfedges{2}(1:end-1,1)+diff(PDF.pdfedges{2})./2;
     PDF.centers{3}=PDF.pdfedges{3}(1:end-1,1)+diff(PDF.pdfedges{3})./2;
+
+    if ~exist(filepdfdenom,'file')
+        % Calculate denominator with sufficient statistics (1e5 steps)
+        gdenominator = PDFdenom(S, PDF, 1e5); 
+        save([data_folder,'\',filepdfdenom],'gdenominator','S');
+    end
 end

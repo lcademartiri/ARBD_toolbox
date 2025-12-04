@@ -59,7 +59,14 @@ filenamecorrection = sprintf(['ASYMCORR_',seriesname,'_%s_%.0e_%.0e_%.0f_%.1f_%.
     potname,S.rp,S.phi,S.N,S.pot_epsilon/S.kbT,S.pot_sigma);
 filestartingconfiguration = sprintf(['START_SBC_%s_%.0e_%.0e_%.0f_%.1f_%.1e.mat'],...
     potname,S.rp,S.phi,S.N,S.pot_epsilon/S.kbT,S.pot_sigma);
-filepdfdenom = sprintf('PDFdenom_%.0e_%.0e_%.0f.mat',S.rp,S.phi,S.N);
+if S.bc==1
+    filepdfdenom = sprintf('PDFdenom_SBC_%.0e_%.0e_%.0f.mat',S.rp,S.phi,S.N);
+elseif S.bc==2
+    filepdfdenom = sprintf('PDFdenom_PBCc_%.0e_%.0e_%.0f.mat',S.rp,S.phi,S.N);
+elseif S.bc==3
+    filepdfdenom = sprintf('PDFdenom_PBCFCC_%.0e_%.0e_%.0f.mat',S.rp,S.phi,S.N);
+end
+
 
 if enable_io && exist(filenamecorrection,'file') && exist(filestartingconfiguration,'file')
     load(filenamecorrection); load(filestartingconfiguration);

@@ -4,9 +4,9 @@ function gdenominator=PDFdenom(S,PDF,noreps)
     if S.bc==2
         for iig=1:noreps
             temp=rand(S.N,3).*(2*S.br)-S.br;
-            tempd=pdist(temp);
-            [temphc,PDF.pdfedges{3}]=histcounts(tempd,PDF.pdfedges{3});
-            gdenominator=gdenominator+temphc';
+            tempd=mic_all_pair_displacements(temp, S);
+            [temphc,PDF.pdfedges{3}]=histcounts(vecnorm(tempd,2,2),PDF.pdfedges{3});
+            gdenominator=gdenominator+temphc'./2;
             if mod(100*iig/noreps,1)==0
                 fprintf('boundary condition: %d -  phi: %.3f - calculating pair distribution denominator - percentage complete: %d\n', S.bc, S.phi,100*iig/noreps);
             end
@@ -25,7 +25,19 @@ function gdenominator=PDFdenom(S,PDF,noreps)
                 fprintf('boundary condition: %d -  phi: %.3f - calculating pair distribution denominator - percentage complete: %d\n', S.bc, S.phi,100*iig/noreps);
             end
         end
+    elseif S.bc==3
+        for iig=1:noreps
+            temp=rand(S.N,3);
+            temp=temp*S.fcc.A;
+            tempd=mic_all_pair_displacements(temp, S);
+            [temphc,PDF.pdfedges{3}]=histcounts(vecnorm(tempd,2,2),PDF.pdfedges{3});
+            gdenominator=gdenominator+temphc'./2;
+            if mod(100*iig/noreps,1)==0
+                fprintf('boundary condition: %d -  phi: %.3f - calculating pair distribution denominator - percentage complete: %d\n', S.bc, S.phi,100*iig/noreps);
+            end
+        end
     end
+    
     gdenominator=gdenominator./noreps;
     clear temp tempd temprho tempaz tempel
 end
