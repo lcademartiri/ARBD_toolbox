@@ -39,7 +39,7 @@ function PDF=pdf_initialization(S,P,data_folder)
         end
         
     elseif S.bc==3 % PBC FCC
-        maxdist=sqrt(2)*S.br;
+        maxdist=sqrt(6)*S.br/2;
         paralleldist=S.br;
         if 10*S.rp>(paralleldist-2*S.rc)
             PDF.pdfedges{3}=sort((maxdist:-0.02*S.rp:0)'); % from 0 to long diagonal
