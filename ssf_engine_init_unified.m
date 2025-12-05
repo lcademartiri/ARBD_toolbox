@@ -77,7 +77,7 @@ if ~isfield(opts, 'num_shells'), opts.num_shells = 150; end
 if ~isfield(opts, 'dirs_per_shell'), opts.dirs_per_shell = 120; end
 
 % Create shells from k_fundamental out to kmax_thermal
-k_rad = linspace(SSF.k_fundamental, SSF.kmax_thermal, opts.num_shells)';
+k_rad = logspace(log10(SSF.k_fundamental), log10(SSF.kmax_thermal), opts.num_shells)';
 num_dirs = opts.dirs_per_shell;
 total_pts = numel(k_rad) * num_dirs;
 
