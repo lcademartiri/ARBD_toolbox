@@ -1,4 +1,4 @@
-function SSF = ssf_accumulation_unified(p, SSF)
+function SSF = ssf_accumulation_unified(p, SSF,cacheSizeMB)
 % SSF = ssf_accumulation_unified(p, SSF)
 %
 % Accumulates data for both Lattice and Sampling modes.
@@ -15,15 +15,15 @@ function SSF = ssf_accumulation_unified(p, SSF)
     index = SSF.nsnap;
 
     % --- PROCESS LATTICE MODES ---
-    SSF.lattice = accumulate_set(p, SSF.kvecs_lattice, SSF.lattice, index, N);
+    SSF.lattice = accumulate_set(p, SSF.kvecs_lattice, SSF.lattice, index, N,cacheSizeMB);
 
     % --- PROCESS SAMPLING MODES ---
-    SSF.sampling = accumulate_set(p, SSF.kvecs_sampling, SSF.sampling, index, N);
+    SSF.sampling = accumulate_set(p, SSF.kvecs_sampling, SSF.sampling, index, N,cacheSizeMB);
 
 end
 
 
-function DataStruct = accumulate_set(p, kvecs, DataStruct, index, N)
+function DataStruct = accumulate_set(p, kvecs, DataStruct, index, N,cacheSizeMB)
 % Helper to process a specific set of k-vectors (Lattice or Sampling)
 
     num_k = size(kvecs, 1);
@@ -32,7 +32,26 @@ function DataStruct = accumulate_set(p, kvecs, DataStruct, index, N)
     % To calculate exp(-i*k*r), we need a matrix of size [NumK x NumPart].
     % If NumK is 100,000 and NumPart is 1,000, that's 1.6 GB complex double.
     % We process in chunks of 'chunk_size' k-vectors to stay in CPU cache.
-    chunk_size = 4000; 
+    bytes_per_element = 16;
+    
+    % We use a safety factor (0.5) to leave room for the input coordinates, 
+    % result vectors, and OS overhead/instructions.
+    safety_factor = 0.5; 
+    
+    % Target memory in bytes
+    target_mem_bytes = (cacheSizeMB * 1024 * 1024) * safety_factor;
+    
+    % Calculate how many K-vectors we can handle per chunk given N particles
+    mem_per_k_row = N * bytes_per_element;
+    
+    chunk_size = floor(target_mem_bytes / mem_per_k_row);
+    
+    % Clamping:
+    % 1. Must be at least 1.
+    % 2. Cap at 10000 to maintain temporal locality and prevent OS paging
+    %    issues even if cache is reported as huge.
+    chunk_size = max(1, chunk_size);
+    chunk_size = min(10000, chunk_size);
     
     % Prepare temporary arrays for this snapshot
     % (We need the full vector for this snapshot to store it, 
