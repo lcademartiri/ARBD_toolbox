@@ -2,6 +2,7 @@ function clamp = mcdClamp2D(nodisp, DISP, esdiff, timestep, forcevector, kbT)
     % --- 1. Determine Sampling Range Dynamically ---
     r_contact = forcevector(1,1);       % (Start of table)
     r_cutoff  = forcevector(end,1);     % ~2.5*sigma or 3*sigma
+    stdx=std(DISP(:,1));
     
     % --- 2. MC array of random relative displacements (2D) ---
     % Sample uniformly in AREA within the interaction ring
@@ -111,9 +112,9 @@ function clamp = mcdClamp2D(nodisp, DISP, esdiff, timestep, forcevector, kbT)
         % 99th percentile (Safe limit)
         clamp = icdf(pd, 0.99);
         
-        if clamp > 100
+        if clamp > stdx*10
             fprintf('Warning: mcdClamp computed extremely high value (%.1f). Timestep may be too large.\n', clamp);
-            clamp = 100;
+            clamp = stdx*10;
         end
     catch
         % Fallback if fit fails
