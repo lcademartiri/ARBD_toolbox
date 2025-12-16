@@ -19,7 +19,7 @@ addpath(data_folder)
 addpath(toolbox_folder)
 addpath(output_folder)
 
-load('SBCvsPBC_25.mat');
+load('SBCvsPBC_25.mat','SSF');
 
 %% --- Post-Processing for Sanity Check ---
 % 1. Normalize the raw sums

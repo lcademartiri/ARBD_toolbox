@@ -33,7 +33,7 @@ SSF.k_fundamental = min(recip_vec_lengths);
 SSF.kmax_lattice = opts.n_lattice_shells * SSF.k_fundamental;
 
 
-% --- 3. GENERATE LATTICE MODES (The "Allowed" Physics) ---
+% --- 3. GENERATE LATTICE MODES (FFT-compatible reciprocal lattice modes) ---
 % We scan integers ONLY up to kmax_lattice (manageable size)
 
 min_b = min(recip_vec_lengths);
