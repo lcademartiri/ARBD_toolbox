@@ -1,4 +1,4 @@
-function pr=FCCrotate(p,v)
+function [pr,R]=FCCrotate(p,v)
 
     % Choose z-axis of new frame as v
     z_new = v;
