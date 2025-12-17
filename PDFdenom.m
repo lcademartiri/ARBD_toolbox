@@ -1,4 +1,12 @@
-function gdenominator=PDFdenom(S,PDF,noreps)
+function gdenominator=PDFdenom(S,PDF,noreps,data_folder)
+
+    if S.bc==1
+        filepdfdenom = sprintf('PDFdenom_SBC_%.0e_%.0e_%.0f.mat',S.rp,S.phi,S.N);
+    elseif S.bc==2
+        filepdfdenom = sprintf('PDFdenom_PBCc_%.0e_%.0e_%.0f.mat',S.rp,S.phi,S.N);
+    elseif S.bc==3
+        filepdfdenom = sprintf('PDFdenom_PBCFCC_%.0e_%.0e_%.0f.mat',S.rp,S.phi,S.N);
+    end
 
     gdenominator=zeros(size(PDF.pdfedges{3},1)-1,1);
     if S.bc==2
@@ -39,5 +47,8 @@ function gdenominator=PDFdenom(S,PDF,noreps)
     end
     
     gdenominator=gdenominator./noreps;
+
+    save([data_folder,'/',filepdfdenom],"gdenominator",'S')
+
     clear temp tempd temprho tempaz tempel
 end
