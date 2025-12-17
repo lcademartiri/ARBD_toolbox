@@ -70,7 +70,6 @@ function PDF=pdf_initialization(S,P,data_folder)
 
     if ~exist(filepdfdenom,'file')
         % Calculate denominator with sufficient statistics (1e5 steps)
-        gdenominator = PDFdenom(S, PDF, 1e5); 
-        save([data_folder,'\',filepdfdenom],'gdenominator','S');
+        gdenominator = PDFdenom(S, PDF, 1e5,data_folder); 
     end
 end
