@@ -1,4 +1,4 @@
-function [p,pgp,sgd_correction,sgd_edges,history] = sbc_setup_sgd_v9(S,PDF,opts,data_folder)
+function [p,pgp,sgd_correction,sgd_edges,history] = sbc_setup_sgd_v10(S,PDF,opts,data_folder)
 % SBC_SETUP_SGD_V9 (The "Sawtooth" Annealer)
 %
 % Logic:
@@ -74,13 +74,6 @@ if enable_io && exist(filenamecorrection,'file') && exist(filestartingconfigurat
 end
 
 % -------------------- 4. Helpers -----------------------------------
-if exist(filepdfdenom,'file')
-    load(filepdfdenom,'gdenominator');
-else
-    % Calculate denominator with sufficient statistics (1e5 steps)
-    gdenominator = PDFdenom(S, PDF, 1e5); 
-    if enable_io, save([data_folder,'\',filepdfdenom],'gdenominator','S'); end
-end
 
 if S.potential~=0
     H = pot_force(S.potential,S.rc,30000,S.pot_sigma,S.pot_epsilon);
@@ -149,26 +142,27 @@ is_frozen_production = false;
 min_therm_steps = max( ceil(10 * relaxsteps), 2000 );
 
 % Diagnostics
-pdf_metric = 0;
+dens_metric = 0;
 
 % Plotting Init
-history = struct('steps',[],'pdf_dev',[],'pdf_smooth',[],'max_corr',[],'gain',[],...
+history = struct('steps',[],'dens_dev',[],'dens_smooth',[],'max_corr',[],'gain',[],...
     'batch_size',[],'fraction_updated',[],'median_snr',[]);
 
 if graphing && S.pot_corr
-    ndens.edges = sort((S.br:-0.02*S.rp:0)');
+    ndens.edges = sort((S.br:-0.02*S.rp:(S.br - potdepth))');
     ndens.centers = ndens.edges(1:end-1) + diff(ndens.edges)/2;
     ndens.counts = zeros(numel(ndens.centers),1);
     ndens.vols = (4/3)*pi*(ndens.edges(2:end).^3 - ndens.edges(1:end-1).^3);
     ndens.ndens0 = (S.N / S.bv);
-    pdf.pre.counts = zeros(numel(PDF.pdfedges{3})-1,1);
 
     f_fig = figure('Units','normalized','Position',[0.05 0.05 0.85 0.85]);
     set(gcf,'Color','k');
-    ax_dens = subplot(3,2,1); ax_pdf  = subplot(3,2,2);
-    ax_conv = subplot(3,2,3); ax_ctrl = subplot(3,2,4);
-    ax_diag = subplot(3,2,5); ax_snr  = subplot(3,2,6);
-    axs = [ax_dens, ax_pdf, ax_conv, ax_ctrl, ax_diag, ax_snr];
+    ax_dens = subplot(3,2,1);
+    ax_conv = subplot(3,2,2);
+    ax_ctrl = subplot(3,2,3);
+    ax_diag = subplot(3,2,4);
+    ax_snr  = subplot(3,2,5);
+    axs = [ax_dens, ax_conv, ax_ctrl, ax_diag, ax_snr];
     for a = axs
         set(a,'Color','k','XColor','w','YColor','w','LineWidth',3);
         set(get(a,'Title'),'FontWeight','bold','Color','w');
@@ -249,11 +243,6 @@ while true
         if graphing
             [hc, ~] = histcounts(vecnorm(p,2,2), ndens.edges);
             ndens.counts = ndens.counts + hc';
-            pairdists = pdist(p);
-            [hc_pdf, ~] = histcounts(pairdists, PDF.pdfedges{3});
-            if numel(hc_pdf) == numel(pdf.pre.counts)
-                pdf.pre.counts = pdf.pre.counts + hc_pdf';
-            end
         end
 
         steps_in_batch = steps_in_batch + 1;
@@ -285,29 +274,41 @@ while true
                 snr(ii) = s;
             end
             
-            % B. Metrics & Targets
+            % ===============================
+            % B. DENSITY METRIC (v10)
+            % ===============================
+            
             w_count = steps_in_batch;
-            valid_pdf_mask = PDF.centers{3} > 2*(S.br - potdepth) & PDF.centers{3} < 2*(S.br)-S.rp;
-            if any(valid_pdf_mask)
-                curr_g = (pdf.pre.counts / max(1,w_count)) ./ gdenominator;
-                residuals = curr_g(valid_pdf_mask) - 1;
-                weights = gdenominator(valid_pdf_mask);
-                raw_pdf_metric = sqrt(sum(weights .* (residuals.^2)) / sum(weights));
+            
+            curr_ndens = (ndens.counts / max(1,w_count)) ./ ndens.vols;
+            dens_residuals = curr_ndens - ndens.ndens0;
+            
+            dens_metric_raw = sqrt( ...
+                sum(ndens.vols .* dens_residuals.^2) / ...
+                sum(ndens.vols) ) / ndens.ndens0;
+
+            
+            % Smooth metric (same logic as before)
+            if dens_metric == 0
+                dens_metric = dens_metric_raw;
             else
-                raw_pdf_metric = 1; 
-            end
-            if pdf_metric == 0, pdf_metric = raw_pdf_metric;
-            else, pdf_metric = (1 - metric_smoothing_param) * pdf_metric + metric_smoothing_param * raw_pdf_metric;
-            end
-            if pdf_metric > 0
-                min_stage_rms = min(min_stage_rms, pdf_metric);
+                dens_metric = (1 - metric_smoothing_param) * dens_metric + ...
+                               metric_smoothing_param * dens_metric_raw;
             end
             
-            % Dynamic Noise Floor
-            expected_counts = gdenominator(valid_pdf_mask) * w_count;
-            expected_counts(expected_counts==0) = inf;
-            bin_noise_sigma = 1 ./ sqrt(expected_counts);
-            current_noise_floor = noise_prefactor * sqrt(mean(bin_noise_sigma.^2));
+            min_stage_rms = min(min_stage_rms, dens_metric);
+
+            
+            % ===============================
+            % DENSITY NOISE FLOOR (Poisson)
+            % ===============================
+            
+            expected_counts = ndens.ndens0 .* ndens.vols * w_count;
+            expected_counts(expected_counts == 0) = inf;
+            
+            dens_noise_floor = noise_prefactor * ...
+                sqrt(mean(1 ./ expected_counts));
+
             
             % C. Gain Calculation (Quadratic Governor)
             current_max_corr = max(abs(sgd_correction));
@@ -319,8 +320,8 @@ while true
             
             % --- A. UPDATE HISTORY STRUCTURE ---
             history.steps(end+1) = qs;
-            history.pdf_dev(end+1) = raw_pdf_metric;
-            history.pdf_smooth(end+1) = pdf_metric;
+            history.dens_dev(end+1) = dens_metric_raw;
+            history.dens_smooth(end+1) = dens_metric;
             history.max_corr(end+1) = max(abs(sgd_correction));
             history.gain(end+1) = sgd_gain;
             history.batch_size(end+1) = sgd_batch_size;
@@ -331,9 +332,7 @@ while true
                 history.median_snr(end+1) = median(snr(has_data));
             else
                 history.median_snr(end+1) = 0;
-            end
-
-            
+            end          
             
             % E. Correction Update (Only if not frozen)
             bins_to_update = false(sgd_bins,1);
@@ -389,7 +388,7 @@ while true
             
             % 2. Standard RMS Check (FIXED: Uses current_grace_limit)
             if batches_in_stage > current_grace_limit
-                if pdf_metric < (rms_tolerance * current_noise_floor)
+                if dens_metric < (rms_tolerance * dens_noise_floor)
                     rms_pass_counter = rms_pass_counter + 1;
                 else
                     rms_pass_counter = 0;
@@ -427,7 +426,7 @@ while true
                 noise_prefactor = max(noise_prefactor, new_factor);
                 
                 % Recalculate current floor
-                current_noise_floor = noise_prefactor * theoretical_sigma;
+                dens_noise_floor = noise_prefactor * theoretical_sigma;
                 
                 % Force transition
                 learning_triggered = true;
@@ -447,23 +446,12 @@ while true
                 title('Density [%]','Color','w'); 
                 set(gca,'Color','k','XColor','w','YColor','w','LineWidth',2);
 
-                % 2. PDF (Top Right) -- RESTORED
-                % Calculate current g(r)
-                curr_g = (pdf.pre.counts / max(1,w_count)) ./ gdenominator;
-                subplot(ax_pdf);
-                % Only plot valid range to avoid weird scaling
-                plot(PDF.centers{3}, curr_g, 'Color', [1 1 0], 'LineWidth', 2); 
-                yline(1, '--w');
-                xlim([0 2.1*S.br]); ylim([0.5 1.5]);
-                title('Pair Distribution Function g(r)','Color','w');
-                set(gca,'Color','k','XColor','w','YColor','w','LineWidth',2);
-
                 % 2. Convergence Metrics (Top Right)
                 subplot(ax_conv);
                 yyaxis left; ax=gca; ax.YColor=[1 1 0];
                 % '.-' ensures points are visible even if it's the very first batch
-                plot(history.steps, history.pdf_smooth, '.-', 'Color',[1 1 0], 'LineWidth', 2); 
-                ylabel('RMS');
+                plot(history.steps, history.dens_smooth, '.-', 'Color',[1 1 0], 'LineWidth', 2); 
+                ylabel('Density RMS');
                 yyaxis right; ax=gca; ax.YColor=[0 1 1];
                 plot(history.steps, history.max_corr, '.-', 'Color',[0 1 1], 'LineWidth', 2); 
                 ylabel('MaxCorr');
@@ -493,14 +481,14 @@ while true
                 drawnow;
                 
                 msg = sprintf('Step %d | RMS: %.4f (Target: %.4f) | Pass: %d/%d | Gain: %.1e', ...
-                    qs, pdf_metric, rms_tolerance*current_noise_floor, rms_pass_counter, required_passes, sgd_gain);
+                    qs, dens_metric, rms_tolerance*dens_noise_floor, rms_pass_counter, required_passes, sgd_gain);
                 fprintf([reverseStr, msg]);
                 reverseStr = repmat('\b', 1, length(msg));
             end
             
             if transition_triggered && ~is_frozen_production
                 fprintf('\n=== STAGE %d COMPLETE (RMS %.4f vs Target %.4f) ===\n', ...
-                    stage_index, pdf_metric, rms_tolerance*current_noise_floor);
+                    stage_index, dens_metric, rms_tolerance*dens_noise_floor);
                 
                 % ... [Standard Snapshot Save Logic] ...
                 if enable_io
@@ -546,8 +534,8 @@ while true
             % G. Reset Accumulators
             batch_sum_drift(:) = 0; batch_sum_drift_sq(:) = 0; batch_counts(:) = 0;
             steps_in_batch = 0;
-            ndens.counts(:) = 0; pdf.pre.counts(:) = 0; 
-            if transition_triggered, pdf_metric = 0; end
+            ndens.counts(:) = 0; dens.pre.counts(:) = 0; 
+            if transition_triggered, dens_metric = 0; end
         end
     end
 
