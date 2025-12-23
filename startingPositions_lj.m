@@ -12,7 +12,8 @@ disp('assemblying starting positions')
 if S.phi>=0.01
     flag=1;
     while flag==1
-        basis=[0,0.7071,0.7071;0.7071,0,0.7071;0.7071,0.7071,0].*(2.0001*S.rp); % basis vectors of the fcc lattice
+        lattice_scale = max(1, (0.50 / S.phi)^(1/3));
+		basis=[0,0.7071,0.7071;0.7071,0,0.7071;0.7071,0.7071,0].*(2.01 * S.rp * lattice_scale);
         maxsteps=2*ceil(((S.br*2)*sqrt(3))/(2*S.rp)); % calculate the maximum number of unit cells of the lattice we need to exceed the dimensions of the boundary
         templist=double(linspace(-maxsteps,maxsteps,2*maxsteps+1)'); % 1D coefficient set
         [x1,x2,x3] = meshgrid(templist,templist,templist); % create lattice of coefficients
