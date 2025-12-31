@@ -1,4 +1,4 @@
-function p = startingPositions_lj(S)
+function p = startingPositions_lj(S,scaleflag)
 
         % starting positions are calculated by (1) taking a close-packed
         % lattice with minimum distance between nodes slightly bigger than
@@ -12,7 +12,11 @@ disp('assemblying starting positions')
 if S.phi>=0.01
     flag=1;
     while flag==1
-        lattice_scale = max(1, (0.50 / S.phi)^(1/3));
+        if scaleflag
+            lattice_scale = max(1, (0.50 / S.phi)^(1/3));
+        else
+            lattice_scale = 1;
+        end
 		basis=[0,0.7071,0.7071;0.7071,0,0.7071;0.7071,0.7071,0].*(2.01 * S.rp * lattice_scale);
         maxsteps=2*ceil(((S.br*2)*sqrt(3))/(2*S.rp)); % calculate the maximum number of unit cells of the lattice we need to exceed the dimensions of the boundary
         templist=double(linspace(-maxsteps,maxsteps,2*maxsteps+1)'); % 1D coefficient set
