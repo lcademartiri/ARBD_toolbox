@@ -3,7 +3,7 @@ function [spt,sput]=comCorrectionSpliceUnwrap(p,bins,S)
     COMw = mean(p,1);   % wrapped COM
     pt=p-COMw; % COM-subtracted wrapped coordinates
     slices=(1:T_steps/bins:T_steps)';
-    for i0=1:10
+    for i0=1:slices
         sp{i0,1}=p(:,:,slices(i0):slices(i0)+T_steps/bins-1); % sliced non-COM-subtracted wrapped trajectories
         spt{i0,1}=pt(:,:,slices(i0):slices(i0)+T_steps/bins-1); % sliced COM-subtracted wrapped trajectories
     end
