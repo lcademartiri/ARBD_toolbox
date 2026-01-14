@@ -103,6 +103,21 @@ SSF.bessel.l = modes(:,2);
 SSF.bessel.n = modes(:,3);
 SSF.bessel.S = S_bessel_raw;
 
+% --- 5. CALCULATE COMPRESSIBILITY ---
+idx0=modes(:,2)==0;
+temp=[modes(idx0,1),S_bessel_raw(idx0)];
+temp=sortrows(temp,1);
+temp=temp(1:5,:);
+temp(:,1)=temp(:,1).^2;
+X = [ones(size(temp(:,1))), temp(:,1)];
+% weights
+w = 1 ./ temp(:,1);
+% weighted least squares
+X = [ones(size(temp(:,1))), temp(:,1)];
+W = diag(w);
+beta = (X' * W * X) \ (X' * W * y);
+SSF.S0=beta(1);
+
 fprintf('========================================================\n');
 
 end
