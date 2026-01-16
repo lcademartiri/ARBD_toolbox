@@ -1,4 +1,5 @@
 function [spt,sput]=comCorrectionSpliceUnwrap(p,bins,S)
+	fprintf('### Initializing: COM-Correction and Splicing ###\n');
     T_steps=size(p,3);
     COMw = mean(p,1);   % wrapped COM
     pt=p-COMw; % COM-subtracted wrapped coordinates
@@ -40,4 +41,5 @@ function [spt,sput]=comCorrectionSpliceUnwrap(p,bins,S)
             sput{irep,1} = spu{irep,1} - COMu;
         end
     end
+	fprintf('=== Completed: COM-Correction and Splicing === \n');
 end

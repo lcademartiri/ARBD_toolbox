@@ -9,6 +9,7 @@ function SSF = ssf_on_sbc(S, p, opts)
 %       (Optional) S.stdx
 %   p : N x 3 x T array (Particle Trajectories)
 %   opts : Configuration struct (optional)
+fprintf('### Initializing: Static Structure Factor and Compressibility Calculation ###\n');
 
 if nargin < 3, opts = struct(); end
 
@@ -118,7 +119,7 @@ W = diag(w);
 beta = (X' * W * X) \ (X' * W * y);
 SSF.S0=beta(1);
 
-fprintf('========================================================\n');
+fprintf('=== Completed: Static Structure Factor and Compressibility Calculation ===\n');
 
 end
 
@@ -151,6 +152,7 @@ function [K, kmag] = generate_fibonacci_k(kmin, kmax, nshell, ndir)
 end
 
 function [mean_rho, mean_abs2] = project_cartesian_chunked(p, K, cacheMB,S)
+	fprintf('Calculating Cartesian Projection...\n');
     [N,~,T] = size(p);
     Nk = size(K,1);
     
@@ -167,8 +169,9 @@ function [mean_rho, mean_abs2] = project_cartesian_chunked(p, K, cacheMB,S)
     
     % Pre-permute p for faster access: [3 x N x T]
     p_perm = permute(p, [2 1 3]);
-    
+    tStart=tic;
     for s = 1:chunk_k:Nk
+		counterstruct = struct('Stage','Cartesian Projection', 'Chunk', s, 'Total_Chunks', ceil(Nk/chunk_k));
         e = min(s+chunk_k-1, Nk);
         K_sub = K(s:e,:); % [Mk x 3]
         
@@ -186,6 +189,7 @@ function [mean_rho, mean_abs2] = project_cartesian_chunked(p, K, cacheMB,S)
             
             rho_sum_t = rho_sum_t + rho_t;
             abs2_sum_t = abs2_sum_t + abs(rho_t).^2;
+			progressUpdate(t, T, tStart, 100, counterstruct)
         end
         
         mean_rho(s:e) = rho_sum_t / T;
@@ -194,6 +198,7 @@ function [mean_rho, mean_abs2] = project_cartesian_chunked(p, K, cacheMB,S)
 end
 
 function [modes, W_ln] = generate_sbc_modes(R, kmax, lmax, nmax)
+	fprintf('Generating Bessel Basis...\n');
     % Solves j_l'(k*R) = 0 for Neumann boundary
     modes_list = [];
     
@@ -257,6 +262,7 @@ function [modes, W_ln] = generate_sbc_modes(R, kmax, lmax, nmax)
 end
 
 function S_final = project_bessel_optimized(p, modes, W_ln, cacheMB,S)
+	fprintf('Calculating Bessel Basis Projection...\n');
     [N, ~, T] = size(p);
     
     unique_l = unique(modes(:,2));
@@ -266,10 +272,10 @@ function S_final = project_bessel_optimized(p, modes, W_ln, cacheMB,S)
     
     % Map modes to indices for fast lookup
     % We process one 'l' at a time to reuse Y_lm
-    
+    tStart=tic;
     for il = 1:length(unique_l)
         l = unique_l(il);
-        
+        counterstruct = struct('Stage','Bessel Projection', 'l', l, 'total_ls', length(unique_l));
         % 1. Slice the mode-specific vectors for this 'l'
         mask = (modes(:,2) == l);
         idxs_l = find(mask);
@@ -312,10 +318,7 @@ function S_final = project_bessel_optimized(p, modes, W_ln, cacheMB,S)
             
             % 5. Accumulate into the main array at the correct indices
             C_ln_acc(idxs_l) = C_ln_acc(idxs_l) + S_snapshot;
-        end
-        
-        if mod(il, 5) == 0
-            fprintf('  Processed l=%d / %d\n', l, max(unique_l));
+			progressUpdate(t, T, tStart, 100, counterstruct)
         end
     end
     

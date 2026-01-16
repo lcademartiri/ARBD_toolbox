@@ -1,5 +1,14 @@
-function [FSTD,GAMMASTD,DEFFSTD]=dynamics_on_sbc(S,sput)
-	
+function [FSTD,GAMMASTD,DEFFSTD]=dynamics_on_sbc(S,POS,opts)
+
+if nargin < 3, opts = struct(); end
+% --- Defaults ---
+if ~isfield(opts, 'vecs'),     				opts.vecs = 600; end
+if ~isfield(opts, 'do_HReq'), 				opts.do_HReq = false; end
+if ~isfield(opts, 'HReq_vecs'),          	opts.HReq_vecs = 180; end
+if ~isfield(opts, 'lag_ratio'),          	opts.lag_ratio = 100; end
+if ~isfield(opts, 'cacheSizeMB'),    		opts.cacheSizeMB = S.cacheSizeMB; end
+
+	fprintf('### Initializing: Collective Dynamics Analysis ###\n');
 	T_steps=size(POS{1,1},3);
 	% K-WINDOW
     k_fundamental = 2*pi/(2*S.br);
@@ -9,31 +18,34 @@ function [FSTD,GAMMASTD,DEFFSTD]=dynamics_on_sbc(S,sput)
     nK = length(k_mags);
     
     % Fibonacci vectors
-    az=fibonacci_sphere(600);
+    az=fibonacci_sphere(opts.vecs);
     [az,el,~]=cart2sph(az(:,1),az(:,2),az(:,3));
     azel=[az,el];
     azel(azel(:,1)<0,:)=[];
 
-    % add equator vectors
-    equator=linspace(0,pi,181)';
-    equator(end,:)=[];
-    equator(1,2)=0;
-    azel_rad=[azel;equator];
+	if opts.do_HReq
+		% add equator vectors
+		equator=linspace(0,pi,opts.HReq_vecs+1)';
+		equator(end,:)=[];
+		equator(1,2)=0;
+		azel_rad=[azel;equator];
+	else
+		azel_rad=azel;
+	end
+	
     azel_deg=rad2deg(azel_rad);
     nAzel=size(azel_rad,1);
     clear az el equator azel
     
     % DYNAMICS
-    max_lag = T_steps/100;
-	
+    max_lag = T_steps/opts.lag_ratio;
     nAzel=size(azel_rad,1);
     nK = length(k_mags);
-    rotmat=rotmat';
     
     % Scalar Maps (Keep Replicates for Error Bars)
         % Dimensions: Theta/Phi x K x Replicates
-    DEFFSTD   = zeros(nAzel, nK, size(sput,1));
-    GAMMASTD  = zeros(nAzel, nK, size(sput,1));
+    DEFFSTD   = zeros(nAzel, nK, size(POS,1));
+    GAMMASTD  = zeros(nAzel, nK, size(POS,1));
     
     % Full Time Correlation Function (Average Only)
     % Dimensions: Theta/Phi x K x Time
@@ -41,11 +53,14 @@ function [FSTD,GAMMASTD,DEFFSTD]=dynamics_on_sbc(S,sput)
     F_AVG_STD = zeros(nAzel, nK, max_lag+1);
     
     % SUPERLOOP
-    for irep=1:size(sput,1)
+	
+    for irep=1:size(POS,1)
         % initialize replicate storage
         seg_D = zeros(nAzel, nK);
         seg_G = zeros(nAzel, nK);
         for idir=1:nAzel
+			counterstruct = struct('Stage','Dynamics', 'Slice', irep, 'k_vector', idir, 'Total_k_vectors', nAzel);
+			tStart=tic;
             az = azel_rad(idir,1);
             sin_az = sin(az); 
             cos_az = cos(az);
@@ -62,9 +77,9 @@ function [FSTD,GAMMASTD,DEFFSTD]=dynamics_on_sbc(S,sput)
                 qz = k_val * nz; % 3D q-vector
                 
                 % -- DYNAMICS Deff(k) --
-				pux = squeeze(spt{irep,1}(:,1,:));
-				puy = squeeze(spt{irep,1}(:,2,:));
-				puz = squeeze(spt{irep,1}(:,3,:));
+				pux = squeeze(POS{irep,1}(:,1,:));
+				puy = squeeze(POS{irep,1}(:,2,:));
+				puz = squeeze(POS{irep,1}(:,3,:));
                 
                 phase_dyn = -(qx.*pux + qy.*puy + qz.*puz);
                 E_dyn = exp(1i * phase_dyn);
@@ -75,8 +90,9 @@ function [FSTD,GAMMASTD,DEFFSTD]=dynamics_on_sbc(S,sput)
                 seg_D(idir, k_idx) = D_val;
                 seg_G(idir, k_idx) = G_val;
                 F_AVG_STD(idir, k_idx, :) = F_AVG_STD(idir, k_idx, :) + reshape((F_curve), 1, 1, []);
-                disp([irep,idir, k_idx])
+                
             end
+			progressUpdate(idir, nAzel, tStart, 1, counterstruct)
         end
         % Store segment
         FSTD(:,:,:,irep)=F_AVG_STD;
@@ -87,5 +103,35 @@ function [FSTD,GAMMASTD,DEFFSTD]=dynamics_on_sbc(S,sput)
             DEFFMASK(:,:,irep) = seg_Dm;
             GAMMAMASK(:,:,irep) = seg_Gm;
         end
+    end
+	fprintf('=== Complete: Collective Dynamics Analysis ===\n');
+end
+
+%% HELPER FUNCTIONS
+
+function [F_norm, lags_vec] = compute_acf(rho_t, max_lag)
+    if any(isnan(rho_t))
+        F_norm = nan(max_lag+1, 1); lags_vec = 0:max_lag; return; 
+    end
+    rho_c = rho_t - mean(rho_t);
+    acf = xcorr(rho_c, max_lag, 'biased');
+    acf = acf(max_lag+1:end);
+    if abs(acf(1)) > 1e-9
+        F_norm = abs(acf) / abs(acf(1));
+    else
+        F_norm = zeros(size(acf));
+    end
+    lags_vec = 0:max_lag;
+end
+
+function [D, Gamma] = fit_dynamics(F_norm, dt, k_val)
+    time = (0:(length(F_norm)-1)) * dt;
+    idx = F_norm < 0.9 & F_norm > 0.2;
+    if sum(idx) < 5
+        D = NaN; Gamma = NaN;
+    else
+        p = polyfit(time(idx), log(F_norm(idx)), 1);
+        Gamma = -p(1);
+        D = Gamma / k_val^2;
     end
 end
