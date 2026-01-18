@@ -31,11 +31,13 @@ fprintf('Particles: %d | Snapshots: %d\n', N, T);
 % --- 0. DATA PREP & CENTERING CHECK ---
 % SBC Bessel modes assume the center of the container is (0,0,0).
 % If the data is shifted (e.g., 0 to L), we must center it.
-mean_pos = mean(mean(p, 3), 1); % Average over Time and Particles
-if norm(mean_pos) > (S.br / 10)
-    fprintf('WARNING: Data does not seem centered at origin.\n');
-    fprintf('         Mean pos: [%.2f %.2f %.2f]. Auto-centering...\n', mean_pos);
-    p = p - mean_pos;
+% also I must consider only the observation window which means that N can fluctuate so snapshots should be placed in cell arrays
+POS=p;
+p=cell(T,1);
+for it=1:T
+	idxoob=vecnorm(squeeze(POS(:,:,it)),2,2)>S.br;
+	p{it,1}=POS(~idxoob,:,it);
+	% p{it,1}=p{it,1}-mean(p{it,1});
 end
 
 % --- 1. INTELLIGENT K-LIMITS ---
@@ -110,6 +112,7 @@ temp=[modes(idx0,1),S_bessel_raw(idx0)];
 temp=sortrows(temp,1);
 temp=temp(1:5,:);
 temp(:,1)=temp(:,1).^2;
+y = temp(:,2); 
 X = [ones(size(temp(:,1))), temp(:,1)];
 % weights
 w = 1 ./ temp(:,1);
@@ -153,7 +156,9 @@ end
 
 function [mean_rho, mean_abs2] = project_cartesian_chunked(p, K, cacheMB,S)
 	fprintf('Calculating Cartesian Projection...\n');
-    [N,~,T] = size(p);
+	
+    T = size(p,1);
+	
     Nk = size(K,1);
     
     mean_rho  = zeros(Nk,1);
@@ -164,14 +169,14 @@ function [mean_rho, mean_abs2] = project_cartesian_chunked(p, K, cacheMB,S)
     target_bytes = cacheMB * 1024^2 * 0.4; % Use 40% of cache per buffer
     
     % We compute matrix [ChunkK x N].
-    chunk_k = floor(target_bytes / (N * bytes_per_num));
+    chunk_k = floor(target_bytes / (S.N * bytes_per_num));
     chunk_k = max(1, min(chunk_k, 5000));
     
     % Pre-permute p for faster access: [3 x N x T]
     p_perm = permute(p, [2 1 3]);
     tStart=tic;
     for s = 1:chunk_k:Nk
-		counterstruct = struct('Stage','Cartesian Projection', 'Chunk', s, 'Total_Chunks', ceil(Nk/chunk_k));
+		counterstruct = struct('Stage','Cartesian Projection');
         e = min(s+chunk_k-1, Nk);
         K_sub = K(s:e,:); % [Mk x 3]
         
@@ -181,19 +186,18 @@ function [mean_rho, mean_abs2] = project_cartesian_chunked(p, K, cacheMB,S)
         % Iterate snapshots
         for t = 1:T
             % Vectorized phase: (Mk x 3) * (3 x N) -> (Mk x N)
-            ptemp=squeeze(p_perm(:,:,t));
-            ptemp(:,vecnorm(ptemp,2,1)>S.br)=[]; % exclusion of reals in the fuzz layer
-            ptemp=ptemp-mean(ptemp,2); % COM subtraction
-            phase = -1i * (K_sub * ptemp);
+            ptemp=p{t,1};
+            phase = -1i * (K_sub * ptemp');
             rho_t = sum(exp(phase), 2); % Sum over particles -> (Mk x 1)
             
             rho_sum_t = rho_sum_t + rho_t;
             abs2_sum_t = abs2_sum_t + abs(rho_t).^2;
-			progressUpdate(t, T, tStart, 100, counterstruct)
+			
         end
         
         mean_rho(s:e) = rho_sum_t / T;
         mean_abs2(s:e) = abs2_sum_t / T;
+		progressUpdate(s, Nk, tStart, 1, counterstruct)
     end
 end
 
@@ -263,7 +267,7 @@ end
 
 function S_final = project_bessel_optimized(p, modes, W_ln, cacheMB,S)
 	fprintf('Calculating Bessel Basis Projection...\n');
-    [N, ~, T] = size(p);
+    T=size(p,1);
     
     unique_l = unique(modes(:,2));
     
@@ -273,9 +277,10 @@ function S_final = project_bessel_optimized(p, modes, W_ln, cacheMB,S)
     % Map modes to indices for fast lookup
     % We process one 'l' at a time to reuse Y_lm
     tStart=tic;
+	counterstruct = struct('Stage','Bessel Projection');
     for il = 1:length(unique_l)
         l = unique_l(il);
-        counterstruct = struct('Stage','Bessel Projection', 'l', l, 'total_ls', length(unique_l));
+        
         % 1. Slice the mode-specific vectors for this 'l'
         mask = (modes(:,2) == l);
         idxs_l = find(mask);
@@ -290,8 +295,7 @@ function S_final = project_bessel_optimized(p, modes, W_ln, cacheMB,S)
         
         for t = 1:T
 			% 1. Extract particles in window
-			r_vec = p(:, :, t); 
-			r_vec(vecnorm(r_vec,2,2) > S.br, :) = [];
+			r_vec = p{t,1}; 
 			% 2. GET INSTANTANEOUS COUNT
 			Nt = size(r_vec, 1);
 			if Nt == 0, continue; end % Safety
@@ -318,8 +322,9 @@ function S_final = project_bessel_optimized(p, modes, W_ln, cacheMB,S)
             
             % 5. Accumulate into the main array at the correct indices
             C_ln_acc(idxs_l) = C_ln_acc(idxs_l) + S_snapshot;
-			progressUpdate(t, T, tStart, 100, counterstruct)
+			
         end
+		progressUpdate(il, length(unique_l), tStart, 1, counterstruct)
     end
     
     % Time Average

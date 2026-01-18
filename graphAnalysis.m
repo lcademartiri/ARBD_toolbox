@@ -1,4 +1,4 @@
-function [degrees,gq,twobodycolls] = graphAnalysis(edges,qs)
+function [degrees,gq,twobodycolls,adjM] = graphAnalysis(edges,qs)
 
 	% --- building the adjacency matrix and the associated graph ---
 	edges=unique(edges,'rows'); % isolate unique collisions

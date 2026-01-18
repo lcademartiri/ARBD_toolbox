@@ -9,7 +9,18 @@ if ~isfield(opts, 'lag_ratio'),          	opts.lag_ratio = 100; end
 if ~isfield(opts, 'cacheSizeMB'),    		opts.cacheSizeMB = S.cacheSizeMB; end
 
 	fprintf('### Initializing: Collective Dynamics Analysis ###\n');
-	T_steps=size(POS{1,1},3);
+	
+	% create a POS cell array truncated to the actual particles in the observation window
+	T=size(POS,3);
+	p=cell(T,1);
+	for it=1:T
+		idxoob=vecnorm(squeeze(POS(:,:,it)),2,2)>S.br;
+		p{it,1}=POS(~idxoob,:,it);
+		% p{it,1}=p{it,1}-mean(p{it,1});
+	end
+	POS=p;
+	clear p
+	
 	% K-WINDOW
     k_fundamental = 2*pi/(2*S.br);
     k_max=pi/S.rp;
@@ -38,14 +49,14 @@ if ~isfield(opts, 'cacheSizeMB'),    		opts.cacheSizeMB = S.cacheSizeMB; end
     clear az el equator azel
     
     % DYNAMICS
-    max_lag = T_steps/opts.lag_ratio;
+    max_lag = T/opts.lag_ratio;
     nAzel=size(azel_rad,1);
     nK = length(k_mags);
     
     % Scalar Maps (Keep Replicates for Error Bars)
         % Dimensions: Theta/Phi x K x Replicates
-    DEFFSTD   = zeros(nAzel, nK, size(POS,1));
-    GAMMASTD  = zeros(nAzel, nK, size(POS,1));
+    DEFFSTD   = zeros(nAzel, nK);
+    GAMMASTD  = zeros(nAzel, nK);
     
     % Full Time Correlation Function (Average Only)
     % Dimensions: Theta/Phi x K x Time
@@ -53,57 +64,60 @@ if ~isfield(opts, 'cacheSizeMB'),    		opts.cacheSizeMB = S.cacheSizeMB; end
     F_AVG_STD = zeros(nAzel, nK, max_lag+1);
     
     % SUPERLOOP
-	
-    for irep=1:size(POS,1)
-        % initialize replicate storage
-        seg_D = zeros(nAzel, nK);
-        seg_G = zeros(nAzel, nK);
-        for idir=1:nAzel
-			counterstruct = struct('Stage','Dynamics', 'Slice', irep, 'k_vector', idir, 'Total_k_vectors', nAzel);
-			tStart=tic;
-            az = azel_rad(idir,1);
-            sin_az = sin(az); 
-            cos_az = cos(az);
-            el = azel_rad(idir,2);
-            cos_el = cos(el);
-            sin_el = sin(el);
-            nx = cos_az * cos_el; % Unit Direction Vector n_hat
-            ny = sin_az * cos_el; % Unit Direction Vector n_hat
-            nz = sin_el; % Unit Direction Vector n_hat          
-            for k_idx = 1:nK
-                k_val = k_mags(k_idx);
-                qx = k_val * nx; % 3D q-vector
-                qy = k_val * ny; % 3D q-vector
-                qz = k_val * nz; % 3D q-vector
-                
-                % -- DYNAMICS Deff(k) --
-				pux = squeeze(POS{irep,1}(:,1,:));
-				puy = squeeze(POS{irep,1}(:,2,:));
-				puz = squeeze(POS{irep,1}(:,3,:));
-                
-                phase_dyn = -(qx.*pux + qy.*puy + qz.*puz);
-                E_dyn = exp(1i * phase_dyn);
-                rho_dyn = sum(E_dyn, 1);
-                [F_curve, ~] = compute_acf(rho_dyn, max_lag);
-                [D_val, G_val] = fit_dynamics(F_curve, S.timestep, k_val);
-                
-                seg_D(idir, k_idx) = D_val;
-                seg_G(idir, k_idx) = G_val;
-                F_AVG_STD(idir, k_idx, :) = F_AVG_STD(idir, k_idx, :) + reshape((F_curve), 1, 1, []);
-                
-            end
-			progressUpdate(idir, nAzel, tStart, 1, counterstruct)
-        end
-        % Store segment
-        FSTD(:,:,:,irep)=F_AVG_STD;
-        DEFFSTD(:,:,irep) = seg_D;
-        GAMMASTD(:,:,irep) = seg_G;
-        if S.bc == 2 || S.bc==3
-            FMASK(:,:,:,irep)=F_AVG_MASK;
-            DEFFMASK(:,:,irep) = seg_Dm;
-            GAMMAMASK(:,:,irep) = seg_Gm;
-        end
-    end
+
+	% initialize replicate storage
+	seg_D = zeros(nAzel, nK);
+	seg_G = zeros(nAzel, nK);
+	for idir=1:nAzel
+		counterstruct = struct('Stage','Dynamics', 'k_vector', idir, 'Total_k_vectors', nAzel);
+		tStart=tic;
+		az = azel_rad(idir,1);
+		sin_az = sin(az); 
+		cos_az = cos(az);
+		el = azel_rad(idir,2);
+		cos_el = cos(el);
+		sin_el = sin(el);
+		nx = cos_az * cos_el; % Unit Direction Vector n_hat
+		ny = sin_az * cos_el; % Unit Direction Vector n_hat
+		nz = sin_el; % Unit Direction Vector n_hat          
+		for k_idx = 1:nK
+			
+			rho_dyn = zeros(T, 1, 'like', 1i);
+			
+			k_val = k_mags(k_idx);
+			qx = k_val * nx; % 3D q-vector
+			qy = k_val * ny; % 3D q-vector
+			qz = k_val * nz; % 3D q-vector
+			
+			for t = 1:T
+				pos_t = POS{t};          % N(t) × 3
+				if isempty(pos_t)
+					rho_dyn(t) = 0;
+					continue
+				end
+				
+				phase = -(qx*pos_t(:,1) + qy*pos_t(:,2) + qz*pos_t(:,3));
+				rho_dyn(t) = sum(exp(1i * phase));
+			end
+			[F_curve, ~] = compute_acf(rho_dyn, max_lag);
+			[D_val, G_val] = fit_dynamics(F_curve, S.timestep, k_val);
+			
+			seg_D(idir, k_idx) = D_val;
+			seg_G(idir, k_idx) = G_val;
+			F_AVG_STD(idir, k_idx, :) = F_AVG_STD(idir, k_idx, :) + reshape((F_curve), 1, 1, []);
+			
+		end
+		progressUpdate(idir, nAzel, tStart, 1, counterstruct)
+	end
+	% Store segment
+	FSTD=F_AVG_STD;
+	DEFFSTD = seg_D;
+	GAMMASTD = seg_G;
+	if S.bc == 2 || S.bc==3
+		FMASK=F_AVG_MASK;
+		DEFFMASK = seg_Dm;
+		GAMMAMASK = seg_Gm;
+	end
 	fprintf('=== Complete: Collective Dynamics Analysis ===\n');
 end
 
