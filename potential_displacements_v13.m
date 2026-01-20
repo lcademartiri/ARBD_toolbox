@@ -110,7 +110,7 @@ function potdisp = potential_displacements_v13(p, S, H, H_interpolant, ghostghos
         totalforces = [Fx Fy Fz];
         
         % convert to displacements
-        potdisp = totalforces * (S.esdiff / S.kbT) * S.timestep;
+        potdisp = totalforces * (S.alpha*S.esdiff / S.kbT) * S.timestep;
         
         % clamp
         maxstep = S.pot_clamp * sqrt(3) * S.stdx;
