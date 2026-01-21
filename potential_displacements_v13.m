@@ -1,4 +1,4 @@
-function potdisp = potential_displacements_v13(p, S, H, H_interpolant, ghostghost, cacheSizeMB)
+function [potdisp,NNS] = potential_displacements_v13(p, S, H, H_interpolant, ghostghost, cacheSizeMB, locndens)
 % potential_displacements_v13
 % Unified, optimized single-file implementation for SBC, Cubic PBC, FCC PBC, BB.
 % Design goals:
@@ -35,10 +35,9 @@ function potdisp = potential_displacements_v13(p, S, H, H_interpolant, ghostghos
 %   - The function defers final force accumulation to three global accumarray calls
 %     for optimal N^2 scaling while keeping memory bounded with blocks.
 
-    if nargin < 5, ghostghost = 0; end
-    if nargin < 6 || isempty(cacheSizeMB)
-        cacheSizeMB = 20;   % default L3 per core
-    end
+    if ~exist('ghostghost','var'), ghostghost = 0; end
+    if ~exist('cacheSizeMB','var'), cacheSizeMB = 20; end
+	if ~exist('locndens','var'), locndens = false; end
     
     N = size(p,1);
     L = 2*S.br;
@@ -86,6 +85,18 @@ function potdisp = potential_displacements_v13(p, S, H, H_interpolant, ghostghos
         dy = d_mic(:,2);
         dz = d_mic(:,3);
         r  = sqrt(dx.^2 + dy.^2 + dz.^2);
+		
+		if locndens
+			idxlocndens=r<S.pot_sigma*1.5;
+			colliders=[pairs_i(idxlocndens);pairs_j(idxlocndens)];
+			colliders(colliders>S.N)=0;
+			nns1=histcounts(colliders,(-1:S.N)'+0.5)';
+			idxlocndens=r<S.pot_sigma*2.5;
+			colliders=[pairs_i(idxlocndens);pairs_j(idxlocndens)];
+			colliders(colliders>S.N)=0;
+			nns2=histcounts(colliders,(-1:S.N)'+0.5)';
+			NNS=uint8([nns1(2:end,1),nns2(2:end,1)]);
+		end
         
         pot_r_min = H(1,1);
         pot_r_max = H(end,1);
