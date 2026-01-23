@@ -1,4 +1,4 @@
-function [potdisp,NNS] = potential_displacements_v13(p, S, H, H_interpolant, ghostghost, cacheSizeMB, locndens)
+function [potdisp,NNS,A] = potential_displacements_v13(p, S, H, H_interpolant, ghostghost, cacheSizeMB, locndens, adjacency)
 % potential_displacements_v13
 % Unified, optimized single-file implementation for SBC, Cubic PBC, FCC PBC, BB.
 % Design goals:
@@ -25,9 +25,13 @@ function [potdisp,NNS] = potential_displacements_v13(p, S, H, H_interpolant, gho
 %   H_interpolant  function handle: F = H_interpolant(r) (vectorized)
 %   ghostghost     optional for SBC ghost filtering (0 or 1)
 %   cacheSizeMB    optional, approx L3 cache in MB; used to pick block size (default 20)
+%	locndens	   optional, flag for the production of NNS, a list of numbers of neighbors within first and second shell
+%	adjacency	   optional, flag for the creation of A, sparse adjacency matrix based on NNS
 %
 % Outputs:
-%   potdisp        N x 3 displacement vectors
+%   potdisp        	N x 3 displacement vectors
+%   NNS				a list of numbers of neighbors within first and second shell
+%	A 				sparse adjacency matrix based on NNS
 %
 % Notes:
 %   - This file is a single self-contained implementation. It intentionally keeps
@@ -38,6 +42,7 @@ function [potdisp,NNS] = potential_displacements_v13(p, S, H, H_interpolant, gho
     if ~exist('ghostghost','var'), ghostghost = 0; end
     if ~exist('cacheSizeMB','var'), cacheSizeMB = 20; end
 	if ~exist('locndens','var'), locndens = false; end
+	if ~exist('adjacency','var'), adjacency = false; end
     
     N = size(p,1);
     L = 2*S.br;
@@ -96,7 +101,17 @@ function [potdisp,NNS] = potential_displacements_v13(p, S, H, H_interpolant, gho
 			colliders(colliders>S.N)=0;
 			nns2=histcounts(colliders,(-1:S.N)'+0.5)';
 			NNS=uint8([nns1(2:end,1),nns2(2:end,1)]);
-		end
+        else
+            NNS=[];
+        end
+		if adjacency			
+			idxlocndens=r<S.pot_sigma*1.5;
+			colliders=[pairs_i(idxlocndens),pairs_j(idxlocndens)];
+			colliders(any(colliders>S.N,2),:)=[];
+			A=sparse(colliders(:,1),colliders(:,2),true,S.N,S.N);
+        else
+            A=[];
+        end
         
         pot_r_min = H(1,1);
         pot_r_max = H(end,1);
