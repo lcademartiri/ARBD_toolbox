@@ -1,4 +1,4 @@
-function [potdisp,NNS,A] = potential_displacements_v13(p, S, H, H_interpolant, ghostghost, cacheSizeMB, locndens, adjacency)
+function [potdisp,NNS, colliders] = potential_displacements_v13(p, S, H, H_interpolant, ghostghost, cacheSizeMB, locndens, coll)
 % potential_displacements_v13
 % Unified, optimized single-file implementation for SBC, Cubic PBC, FCC PBC, BB.
 % Design goals:
@@ -26,12 +26,10 @@ function [potdisp,NNS,A] = potential_displacements_v13(p, S, H, H_interpolant, g
 %   ghostghost     optional for SBC ghost filtering (0 or 1)
 %   cacheSizeMB    optional, approx L3 cache in MB; used to pick block size (default 20)
 %	locndens	   optional, flag for the production of NNS, a list of numbers of neighbors within first and second shell
-%	adjacency	   optional, flag for the creation of A, sparse adjacency matrix based on NNS
 %
 % Outputs:
 %   potdisp        	N x 3 displacement vectors
 %   NNS				a list of numbers of neighbors within first and second shell
-%	A 				sparse adjacency matrix based on NNS
 %
 % Notes:
 %   - This file is a single self-contained implementation. It intentionally keeps
@@ -42,7 +40,7 @@ function [potdisp,NNS,A] = potential_displacements_v13(p, S, H, H_interpolant, g
     if ~exist('ghostghost','var'), ghostghost = 0; end
     if ~exist('cacheSizeMB','var'), cacheSizeMB = 20; end
 	if ~exist('locndens','var'), locndens = false; end
-	if ~exist('adjacency','var'), adjacency = false; end
+	if ~exist('coll','var'), coll = false; end
     
     N = size(p,1);
     L = 2*S.br;
@@ -91,26 +89,22 @@ function [potdisp,NNS,A] = potential_displacements_v13(p, S, H, H_interpolant, g
         dz = d_mic(:,3);
         r  = sqrt(dx.^2 + dy.^2 + dz.^2);
 		
-		if locndens
-			idxlocndens=r<S.pot_sigma*1.5;
-			colliders=[pairs_i(idxlocndens);pairs_j(idxlocndens)];
-			colliders(colliders>S.N)=0;
-			nns1=histcounts(colliders,(-1:S.N)'+0.5)';
+		if locndens | coll			
 			idxlocndens=r<S.pot_sigma*2.5;
 			colliders=[pairs_i(idxlocndens);pairs_j(idxlocndens)];
 			colliders(colliders>S.N)=0;
+			colliders(sum(colliders,2)==0,:)=[];
 			nns2=histcounts(colliders,(-1:S.N)'+0.5)';
-			NNS=uint8([nns1(2:end,1),nns2(2:end,1)]);
-        else
-            NNS=[];
-        end
-		if adjacency			
 			idxlocndens=r<S.pot_sigma*1.5;
 			colliders=[pairs_i(idxlocndens),pairs_j(idxlocndens)];
-			colliders(any(colliders>S.N,2),:)=[];
-			A=sparse(colliders(:,1),colliders(:,2),true,S.N,S.N);
+			colliders(colliders>S.N)=0;
+			colliders(sum(colliders,2)==0,:)=[];
+			nns1=histcounts(colliders,(-1:S.N)'+0.5)';
+			NNS=uint8([nns1(2:end,1),nns2(2:end,1)]);
+			colliders=uint16(colliders);
         else
-            A=[];
+			colliders=[];
+            NNS=[];
         end
         
         pot_r_min = H(1,1);
