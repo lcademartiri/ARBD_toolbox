@@ -68,9 +68,9 @@ if ~isfield(opts, 'cacheSizeMB'),    		opts.cacheSizeMB = S.cacheSizeMB; end
 	% initialize replicate storage
 	seg_D = zeros(nAzel, nK);
 	seg_G = zeros(nAzel, nK);
+	counterstruct = struct('Stage','Dynamics', 'k_vector', idir, 'Total_k_vectors', nAzel);
+	tStart=tic;
 	for idir=1:nAzel
-		counterstruct = struct('Stage','Dynamics', 'k_vector', idir, 'Total_k_vectors', nAzel);
-		tStart=tic;
 		az = azel_rad(idir,1);
 		sin_az = sin(az); 
 		cos_az = cos(az);

@@ -24,10 +24,6 @@ if ~isfield(opts, 'force_structural_k'), opts.force_structural_k = true; end
 [N, dim, T] = size(p);
 assert(dim == 3, 'Particle array must be N x 3 x T');
 
-fprintf('========================================================\n');
-fprintf('SSF OFFLINE SBC (Optimized)\n');
-fprintf('Particles: %d | Snapshots: %d\n', N, T);
-
 % --- 0. DATA PREP & CENTERING CHECK ---
 % SBC Bessel modes assume the center of the container is (0,0,0).
 % If the data is shifted (e.g., 0 to L), we must center it.
@@ -98,7 +94,6 @@ end
 
 
 % --- 4. OPTIMIZED BESSEL PROJECTION ---
-fprintf('Projecting (Matrix Optimized)...\n');
 S_bessel_raw = project_bessel_optimized(p, modes, W_ln, opts.cacheSizeMB,S);
 
 SSF.bessel.k = modes(:,1);
@@ -155,7 +150,6 @@ function [K, kmag] = generate_fibonacci_k(kmin, kmax, nshell, ndir)
 end
 
 function [mean_rho, mean_abs2] = project_cartesian_chunked(p, K, cacheMB,S)
-	fprintf('Calculating Cartesian Projection...\n');
 	
     T = size(p,1);
 	
@@ -266,7 +260,6 @@ function [modes, W_ln] = generate_sbc_modes(R, kmax, lmax, nmax)
 end
 
 function S_final = project_bessel_optimized(p, modes, W_ln, cacheMB,S)
-	fprintf('Calculating Bessel Basis Projection...\n');
     T=size(p,1);
     
     unique_l = unique(modes(:,2));
