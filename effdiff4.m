@@ -197,7 +197,9 @@ istep=istep+1;
 o=[o;zeros(S.CTsteps-size(o,1)+S.ACFmaxlag,3,10)];
 p=[p;zeros(S.CTsteps-size(p,1)+S.ACFmaxlag,3,10)];
 eta=sigma_noise.*randn(S.CTsteps+S.ACFmaxlag, 3,10);
-
+tStart=tic;
+DEFFtemp=1;
+counterstruct = struct('Stage','EFFDIFF: extracting snapshots','Current_Alpha',DEFFtemp);
 while (kcount1-1)*30<=S.rwsteps
     fluxstep=istep-mcount*S.CTsteps;
     o(fluxstep,:,:)=sum(beta3.*(o(fluxstep-S.ACFmaxlagVACF:fluxstep-1,:,:)),1)+eta(fluxstep,:,:);
@@ -221,8 +223,7 @@ while (kcount1-1)*30<=S.rwsteps
         vartemp=(std(displacementstemp,0,"all"))^2;
         DEFFtemp=vartemp/(2*S.kt);
         DEFFtemp=DEFFtemp/S.diffusivity;
-
-        disp([sprintf('%.0f',S.rp*1e10),sprintf('%.0f',S.km),sprintf('%.0f',((kcount1-1)*30)),sprintf('%.5f',DEFFtemp)])
+        progressUpdate((kcount1-1)*30, S.rwsteps, tStart, 1, counterstruct);
     end
     istep=istep+1;
 end

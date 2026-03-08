@@ -17,7 +17,7 @@ if nargin < 3, opts = struct(); end
 if ~isfield(opts, 'num_shells'),     opts.num_shells = 1; end
 if ~isfield(opts, 'dirs_per_shell'), opts.dirs_per_shell = 1; end
 if ~isfield(opts, 'l_max'),          opts.l_max = 3; end
-if ~isfield(opts, 'n_max'),          opts.n_max = 30; end
+if ~isfield(opts, 'n_max'),          opts.n_max = 1000; end
 if ~isfield(opts, 'cacheSizeMB'),    opts.cacheSizeMB = S.cacheSizeMB; end
 if ~isfield(opts, 'force_structural_k'), opts.force_structural_k = true; end
 
