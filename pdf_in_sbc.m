@@ -6,7 +6,7 @@ function pdf=pdf_in_sbc(POS,S,res)
 	% requires the resolution of the pdf bins
 	% the pdf analysis also yields the N(t) fluctuation spectrum for fuzzy tether systems
 	% the pdf struct also contains the number density rho(t) fluctuation spectrum for fuzzy tether systems
-	[Nall,~,T]=size(POS); 
+	[~,~,T]=size(POS); 
 	S.bv=(4/3)*pi*(S.br^3);
 	
 	fprintf('### Initializing: PDF Calculation ###\n');
