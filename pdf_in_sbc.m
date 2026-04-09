@@ -22,6 +22,9 @@ function pdf=pdf_in_sbc(POS,S,res)
 	counterstruct = struct('Stage','PDF Calculation');
 	for it = 1:T
 		p = squeeze(POS(:,:,it));
+        % hot core exclusion
+        %p(vecnorm(p,2,2)<(5*S.rp),:)=[];
+        %
 		pr = p(vecnorm(p,2,2)<S.br,:);
 		pdf.N_t(it,1) = size(pr,1);
 		pdf.rho_t(it,1) = pdf.N_t(it,1)/S.bv;
